@@ -2,6 +2,13 @@ const express = require("express");
 const axios = require("axios");
 const app = express();
 app.use(express.json());
+app.use(function(req,res,next){
+  res.header('Access-Control-Allow-Origin','*');
+  res.header('Access-Control-Allow-Headers','*');
+  res.header('Access-Control-Allow-Methods','GET,POST,OPTIONS');
+  if(req.method==='OPTIONS'){res.sendStatus(200);return;}
+  next();
+});
 
 const GHL_API = "https://services.leadconnectorhq.com";
 const GHL_TOKEN = "pit-d6e4af69-dfb1-419d-950e-a12b1871ad2f";
