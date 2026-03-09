@@ -557,7 +557,7 @@ function openAI(id){
       risksHtml+
       (tagsHtml?'<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">'+tagsHtml+'</div>':'')+
       '<div style="margin-top:14px"><div style="font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:600">📤 Share Report</div>'+
-      '<div class="share-row"><span class="share-url">'+shareUrl+'</span><button class="copy-btn" onclick="copyUrl(\''+shareUrl+'\')">Copy</button><a href="/qr/'+id+'" target="_blank" class="copy-btn">QR 📱</a></div></div>';
+      '<div class="share-row"><span class="share-url">'+shareUrl+'</span><button class="copy-btn" data-url="'+shareUrl+'" onclick="copyUrl(this.dataset.url)">Copy</button><a href="/qr/'+id+'" target="_blank" class="copy-btn">QR 📱</a></div></div>';
   });
 }
 
@@ -590,7 +590,7 @@ function openMo(id){
     '<a href="/report/'+a.id+'" target="_blank" style="flex:1;display:block;text-align:center;padding:10px;background:var(--accent);color:#fff;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none">📄 Client Report</a>'+
     '<a href="/qr/'+a.id+'" target="_blank" style="display:block;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;font-weight:600;font-size:13px;text-decoration:none">📱 QR</a>'+
     '</div>'+
-    '<div style="margin-top:10px"><div class="share-row"><span class="share-url">'+reportUrl+'</span><button class="copy-btn" onclick="copyUrl(\''+reportUrl+'\')">Copy Link</button></div></div>';
+    '<div style="margin-top:10px"><div class="share-row"><span class="share-url">'+reportUrl+'</span><button class="copy-btn" data-url="'+reportUrl+'" onclick="copyUrl(this.dataset.url)">Copy Link</button></div></div>';
   document.getElementById('movl').classList.add('open');
 }
 function closeMo(e){if(e.target===document.getElementById('movl'))closeMoDirect();}
