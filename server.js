@@ -239,5 +239,10 @@ app.get("/team", async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log("Server running on port " + (process.env.PORT || 3000));
+  console.log("Server running");
+
+  console.log("ENV CHECK:", {
+    hasToken: !!process.env.GHL_API_KEY,
+    hasLocationId: !!process.env.GHL_LOCATION_ID
+  });
 });
