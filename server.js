@@ -195,50 +195,49 @@ app.get("/", (req, res) => {
   `);
 });
 
-app.get("/team", async (req, res) => {
-  try {
-    const response = await axios.get(`${GHL_API}/users/`, {
-      headers: {
-        Authorization: `Bearer ${process.env.GHL_API_KEY}`,
-        Version: "2021-07-28",
-        "Location-Id": process.env.GHL_LOCATION_ID
-      }
-    });
+app.get("/env-check", (req, res) => {
+  const token = (process.env.GHL_API_KEY || "").trim();
+  const locationId = (process.env.GHL_LOCATION_ID || "").trim();
 
-    res.json(response.data);
-
-  } catch (error) {
-
-    console.log(error.response?.data || error.message);
-
-    res.status(500).json({
-      success: false,
-      error: error.response?.data || error.message
-    });
-
-  }
+  res.json({
+    hasToken: !!token,
+    tokenPreview: token ? token.slice(0, 8) + "..." + token.slice(-4) : null,
+    tokenLength: token ? token.length : 0,
+    startsWithPit: token.startsWith("pit-"),
+    hasLocationId: !!locationId,
+    locationId,
+  });
 });
 
-app.get("/team-debug", async (req, res) => {
+app.get("/team", async (req, res) => {
   try {
-    const response = await axios.get(`${GHL_API}/users/search`, {
+    const token = (process.env.GHL_API_KEY || "").trim();
+    const locationId = (process.env.GHL_LOCATION_ID || "").trim();
+
+    const response = await axios.get(`${GHL_API}/users/`, {
       headers: {
-        Authorization: `Bearer ${process.env.GHL_API_KEY}`,
+        Authorization: `Bearer ${token}`,
         Version: "2021-07-28",
+        "Location-Id": locationId,
         Accept: "application/json"
       }
     });
 
-    res.send("<pre>" + JSON.stringify(response.data, null, 2) + "</pre>");
+    console.log("GHL TEAM RESPONSE:");
+    console.log(JSON.stringify(response.data, null, 2));
+
+    res.json(response.data);
   } catch (error) {
-    res
-      .status(error.response?.status || 500)
-      .send("<pre>" + JSON.stringify(error.response?.data || error.message, null, 2) + "</pre>");
+    console.log("GHL TEAM ERROR:");
+    console.log(JSON.stringify(error.response?.data || error.message, null, 2));
+
+    res.status(error.response?.status || 500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Server running on port " + (process.env.PORT || 3000));
 });
