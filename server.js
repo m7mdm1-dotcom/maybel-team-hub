@@ -146,7 +146,7 @@ app.get("/team", async (req, res) => {
       `${GHL_API}/users/search`,
       {
         headers: {
-          Authorization: \`Bearer \${process.env.GHL_API_KEY}\`,
+          Authorization: `Bearer ${process.env.GHL_API_KEY}`,
           Version: "2021-07-28"
         }
       }
