@@ -142,15 +142,12 @@ app.get("/", (req, res) => {
 
 app.get("/team", async (req, res) => {
   try {
-    const response = await axios.get(
-      `${GHL_API}/users/`
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.GHL_API_KEY}`,
-          Version: "2021-07-28"
-        }
+    const response = await axios.get(`${GHL_API}/users/`, {
+      headers: {
+        Authorization: `Bearer ${process.env.GHL_API_KEY}`,
+        Version: "2021-07-28"
       }
-    );
+    });
 
     res.json(response.data);
   } catch (error) {
