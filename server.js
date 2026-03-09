@@ -435,328 +435,13 @@ app.get("/qr/:accountId", function(req,res){
 </body></html>`);
 });
 
-app.get("/", function(req,res) {
-res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>MAYBEL Dashboard</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<style>
-:root{--bg:#f4f6fb;--surface:#fff;--surface2:#f0f2f8;--border:#e2e6f0;--accent:#6c63ff;--green:#00c49a;--red:#ef4444;--yellow:#f59e0b;--blue:#3b82f6;--purple:#8b5cf6;--text:#1a1d2e;--muted:#8a92a6;--sh:0 1px 4px rgba(0,0,0,.06)}
-[data-theme="dark"]{--bg:#0a0c10;--surface:#13161d;--surface2:#1a1e28;--border:#252a38;--text:#e8eaf0;--muted:#6b7280;--sh:0 1px 4px rgba(0,0,0,.3)}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
-.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 18px;display:flex;align-items:center;height:52px;gap:14px;position:sticky;top:0;z-index:200;box-shadow:var(--sh)}
-.logo{font-weight:800;font-size:16px;letter-spacing:-.5px;flex-shrink:0}.logo span{color:var(--accent)}
-.nav{display:flex;gap:2px;flex:1;overflow-x:auto}.nav::-webkit-scrollbar{display:none}
-.nbtn{padding:6px 11px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:500;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;white-space:nowrap;transition:.15s}
-.nbtn:hover{color:var(--text);background:var(--surface2)}.nbtn.active{color:var(--accent);background:rgba(108,99,255,.1);font-weight:600}
-.hdr-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
-.ibtn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;position:relative;transition:.15s}
-.ibtn:hover{border-color:var(--accent)}.ndot{position:absolute;top:4px;right:4px;width:7px;height:7px;background:var(--red);border-radius:50%;border:2px solid var(--surface);display:none}
-.lupd{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace}
-.page{display:none;padding:18px;max-width:1440px;margin:0 auto}.page.active{display:block}
-.sg{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px}
-@media(max-width:900px){.sg{grid-template-columns:repeat(3,1fr)}}@media(max-width:560px){.sg{grid-template-columns:repeat(2,1fr)}}
-.sc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;position:relative;overflow:hidden;box-shadow:var(--sh)}
-.sc::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:12px 12px 0 0}
-.sc.ca::after{background:var(--accent)}.sc.cg::after{background:var(--green)}.sc.cb::after{background:var(--blue)}.sc.cy::after{background:var(--yellow)}.sc.cp::after{background:var(--purple)}.sc.cr::after{background:var(--red)}
-.sl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;font-weight:600}
-.sn{font-size:24px;font-weight:700;color:var(--text);line-height:1}.ss{font-size:11px;color:var(--muted);margin-top:2px}
-.stitle{font-size:13px;font-weight:700;color:var(--text);margin-bottom:11px;display:flex;align-items:center;gap:7px}
-.stitle::before{content:'';width:3px;height:14px;background:var(--accent);border-radius:2px;display:block}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--sh)}
-.ctitle{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}.csub{font-size:11px;color:var(--muted);margin-bottom:12px}
-.c2{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:18px}
-.c3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
-.c4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
-@media(max-width:768px){.c2,.c3,.c4{grid-template-columns:1fr}}
-.cw{position:relative;height:190px}
-.htabs{display:flex;border-bottom:2px solid var(--border);overflow-x:auto}.htabs::-webkit-scrollbar{display:none}
-.htab{padding:9px 14px;border:none;border-bottom:2px solid transparent;background:transparent;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:var(--muted);margin-bottom:-2px;white-space:nowrap;display:flex;align-items:center;gap:5px;transition:.15s}
-.htab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
-.hcnt{font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;background:var(--surface2);color:var(--muted)}
-.htab.active .hcnt{background:rgba(108,99,255,.15);color:var(--accent)}
-.hctrl{display:flex;gap:7px;padding:11px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center}
-.hsrch{flex:1;min-width:150px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none}
-.hsrch:focus{border-color:var(--accent)}
-.hsel{padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none;cursor:pointer}
-.hb{padding:7px 12px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:12px;font-weight:500;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);transition:.15s}
-.hb:hover{border-color:var(--accent)}.hb.pri{background:var(--accent);color:#fff;border-color:var(--accent)}
-.hb.danger{background:rgba(239,68,68,.1);color:var(--red);border-color:rgba(239,68,68,.3)}
-table{width:100%;border-collapse:collapse}
-thead tr{background:var(--surface2)}
-th{padding:8px 11px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap}
-td{padding:10px 11px;font-size:12px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle}
-tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
-.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700}
-.badge.thriving{background:rgba(0,196,154,.12);color:var(--green)}.badge.healthy{background:rgba(59,130,246,.12);color:var(--blue)}
-.badge.steady{background:rgba(245,158,11,.12);color:var(--yellow)}.badge.atrisk{background:rgba(239,68,68,.12);color:var(--red)}
-.badge.paid{background:rgba(0,196,154,.12);color:var(--green)}.badge.pending{background:rgba(245,158,11,.12);color:var(--yellow)}
-.badge.overdue{background:rgba(239,68,68,.12);color:var(--red)}.badge.active{background:rgba(59,130,246,.12);color:var(--blue)}
-.pb{display:inline-flex;align-items:center;gap:5px}.pbl{font-size:11px;font-weight:500;min-width:30px}
-.pbbar{width:70px;height:4px;background:var(--border);border-radius:999px;overflow:hidden}.pbfill{height:4px;border-radius:999px;background:var(--accent)}
-.sfgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:18px}
-.sfc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px;box-shadow:var(--sh);transition:.15s}
-.sfc:hover{border-color:var(--accent)}.sfc.act{border-color:rgba(0,196,154,.35)}.sfc.onshift{border-color:rgba(108,99,255,.5);box-shadow:0 0 0 2px rgba(108,99,255,.1)}
-.sfav{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#a78bfa);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;margin-bottom:7px}
-.sfn{font-weight:600;font-size:12px;color:var(--text)}.sfe{font-size:10px;color:var(--muted);margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sfm{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.sm{background:var(--surface2);border-radius:6px;padding:6px;text-align:center;border:1px solid var(--border)}
-.smn{font-size:16px;font-weight:700;color:var(--text)}.sml{font-size:9px;color:var(--muted)}
-.kpi-row{margin:4px 0}.kpi-lbl{font-size:10px;color:var(--muted);display:flex;justify-content:space-between;margin-bottom:2px}
-.kpi-bar{height:5px;background:var(--border);border-radius:999px;overflow:hidden}.kpi-fill{height:5px;border-radius:999px;transition:width .4s}
-.shift-btn{width:100%;padding:5px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:10px;font-weight:600;font-family:'DM Sans',sans-serif;margin-top:7px;transition:.15s}
-.shift-btn.in{background:rgba(0,196,154,.1);color:var(--green);border-color:rgba(0,196,154,.3)}
-.shift-btn.out{background:rgba(239,68,68,.1);color:var(--red);border-color:rgba(239,68,68,.3)}
-.la-tag{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600}
-.la-tag.contact{background:rgba(59,130,246,.1);color:var(--blue)}.la-tag.opportunity{background:rgba(108,99,255,.1);color:var(--accent)}.la-tag.conversation{background:rgba(0,196,154,.1);color:var(--green)}
-.lbr{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border)}.lbr:last-child{border-bottom:none}
-.lbrk{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
-.lbrk.g{background:#fef3c7;color:#b45309}.lbrk.s{background:#f1f5f9;color:#64748b}.lbrk.b{background:#fef0e7;color:#c2410c}.lbrk.o{background:var(--surface2);color:var(--muted)}
-.lbbar{flex:1;height:5px;background:var(--border);border-radius:999px;overflow:hidden}.lbfill{height:5px;border-radius:999px}
-.movl{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;align-items:center;justify-content:center}
-.movl.open{display:flex}
-.mo{background:var(--surface);border-radius:16px;padding:22px;width:90%;max-width:560px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
-.mohd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
-.mocl{border:none;background:none;font-size:18px;cursor:pointer;color:var(--muted)}
-.npnl{display:none;position:fixed;top:56px;right:14px;width:300px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:300;overflow:hidden}
-.npnl.open{display:block}
-.nph{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600}
-.npi{padding:9px 14px;border-bottom:1px solid var(--border);font-size:11px;display:flex;gap:8px;align-items:flex-start}
-.npi.unread{background:rgba(108,99,255,.04)}.npt{font-size:10px;color:var(--muted);margin-top:2px}
-.ugrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
-@media(max-width:600px){.ugrid{grid-template-columns:1fr 1fr}}
-.uc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;align-items:center;gap:10px;box-shadow:var(--sh)}
-.uico{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
-.un{font-size:20px;font-weight:700;color:var(--text)}.ul{font-size:11px;color:var(--muted)}
-.mrrb{font-size:28px;font-weight:800;color:var(--green)}
-.mrrt{font-size:11px;padding:2px 7px;border-radius:999px;background:rgba(0,196,154,.12);color:var(--green);font-weight:600;display:inline-block;margin-top:3px}
-.csms{padding:3px 7px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;cursor:pointer;outline:none}
-.ab{width:24px;height:24px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:11px;display:inline-flex;align-items:center;justify-content:center;transition:.15s}
-.ab:hover{border-color:var(--accent)}
-.alrt{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#b91c1c}
-.sdot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
-.sdot.on{background:var(--green)}.sdot.td{background:var(--yellow)}.sdot.off{background:var(--red)}
-.loading{text-align:center;padding:36px;color:var(--muted);font-size:12px}
-.pulse{animation:pulse 1.4s infinite}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.rt-good{color:var(--green);font-weight:700}.rt-ok{color:var(--yellow);font-weight:700}.rt-bad{color:var(--red);font-weight:700}
-.kpi-input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none;margin-top:4px}
-.kpi-input:focus{border-color:var(--accent)}
-.save-btn{width:100%;padding:10px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:12px}
-.days-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(108,99,255,.1);color:var(--accent)}
-/* KANBAN */
-.kb-board{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:start;overflow-x:auto;padding-bottom:10px}
-@media(max-width:1100px){.kb-board{grid-template-columns:repeat(3,1fr)}}
-.kb-col{background:var(--surface2);border-radius:12px;padding:10px;border:1px solid var(--border);min-height:200px}
-.kb-col-hd{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
-.kb-cnt{font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;background:var(--surface);color:var(--muted)}
-.kb-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px;margin-bottom:6px;font-size:11px;box-shadow:var(--sh);cursor:default;transition:.15s}
-.kb-card:hover{border-color:var(--accent);transform:translateY(-1px)}
-.kb-name{font-weight:600;color:var(--text);margin-bottom:3px}.kb-val{color:var(--green);font-weight:700;font-size:12px}
-.kb-contact{color:var(--muted);font-size:10px;margin-top:2px}
-/* AI SUMMARY */
-.ai-bubble{background:linear-gradient(135deg,rgba(108,99,255,.08),rgba(139,92,246,.06));border:1px solid rgba(108,99,255,.2);border-radius:12px;padding:14px;font-size:12px;line-height:1.7;color:var(--text);margin-top:10px;position:relative}
-.ai-bubble::before{content:'🤖';position:absolute;top:-10px;left:12px;font-size:16px;background:var(--surface);padding:0 4px}
-.ai-tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(108,99,255,.12);color:var(--accent);margin:2px}
-.ai-risk{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:8px 12px;font-size:11px;color:var(--red);margin-top:8px}
-/* CHECKLIST */
-.cl-item{display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:.1s}
-.cl-item:last-child{border-bottom:none}.cl-item:hover{background:var(--surface2)}
-.cl-cb{width:16px;height:16px;border-radius:4px;border:2px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:.15s}
-.cl-cb.done{background:var(--green);border-color:var(--green);color:#fff;font-size:10px}
-.cl-label{font-size:12px;flex:1}.cl-label.done{text-decoration:line-through;color:var(--muted)}
-.prog-bar{height:6px;background:var(--border);border-radius:999px;overflow:hidden;margin:8px 14px}
-.prog-fill{height:6px;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--green));transition:width .4s}
-/* INVOICE FORM */
-.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
-.form-group{display:flex;flex-direction:column;gap:4px}
-.form-label{font-size:11px;color:var(--muted);font-weight:600}
-/* CONTRACT EXPIRY */
-.exp-good{color:var(--green)}.exp-warn{color:var(--yellow)}.exp-bad{color:var(--red)}
-/* AI LOADING */
-.ai-loading{display:flex;gap:4px;align-items:center;padding:12px 0}
-.ai-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:bounce .8s infinite}
-.ai-dot:nth-child(2){animation-delay:.15s}.ai-dot:nth-child(3){animation-delay:.3s}
-@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-/* SHARE */
-.share-row{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)}
-.share-url{flex:1;font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.copy-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;color:var(--text);white-space:nowrap;transition:.15s}
-.copy-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
-</style>
-</head>
-<body>
 
-<div class="npnl" id="npnl">
-  <div class="nph"><span>🔔 Notifications</span><button onclick="markRead()" style="border:none;background:none;font-size:11px;color:var(--accent);cursor:pointer;font-family:'DM Sans',sans-serif">Mark all read</button></div>
-  <div id="nlist"><div class="loading" style="padding:18px">Loading...</div></div>
-</div>
+// ── Serve client JS externally (avoids GHL postscribe inline script issues) ──
+app.get("/app.js", function(req,res){
+  res.setHeader('Content-Type','application/javascript');
+  res.setHeader('Cache-Control','no-cache');
+  res.send(`
 
-<div class="movl" id="movl" onclick="closeMo(event)">
-  <div class="mo">
-    <div class="mohd">
-      <div><div style="font-size:15px;font-weight:700" id="mo-title">—</div><div style="font-size:11px;color:var(--muted)" id="mo-email"></div></div>
-      <button class="mocl" onclick="closeMoDirect()">✕</button>
-    </div>
-    <div id="mo-body"></div>
-  </div>
-</div>
-
-<div class="header">
-  <div class="logo">MAY<span>BEL</span></div>
-  <nav class="nav">
-    <button class="nbtn active" onclick="showPage('dashboard')">📊 Dashboard</button>
-    <button class="nbtn" onclick="showPage('health')">❤️ Health</button>
-    <button class="nbtn" onclick="showPage('analytics')">📈 Analytics</button>
-    <button class="nbtn" onclick="showPage('staff')">👥 Staff</button>
-    <button class="nbtn" onclick="showPage('kanban')">🗂️ Kanban</button>
-    <button class="nbtn" onclick="showPage('invoices')">💰 Invoices</button>
-    <button class="nbtn" onclick="showPage('usage')">⚡ Usage</button>
-  </nav>
-  <div class="hdr-right">
-    <span class="lupd" id="lupd">—</span>
-    <button class="ibtn" onclick="toggleNotif()">🔔<span class="ndot" id="ndot"></span></button>
-    <button class="ibtn" onclick="toggleTheme()" id="tbtn">🌙</button>
-    <button class="ibtn" onclick="loadAll()">↻</button>
-  </div>
-</div>
-
-<!-- DASHBOARD -->
-<div class="page active" id="page-dashboard">
-  <div class="sg">
-    <div class="sc ca"><div class="sl">Total Users</div><div class="sn" id="s-users">—</div></div>
-    <div class="sc cb"><div class="sl">Sub-Accounts</div><div class="sn" id="s-subs">—</div></div>
-    <div class="sc cg"><div class="sl">Contacts</div><div class="sn" id="s-contacts">—</div><div class="ss" id="s-ctd"></div></div>
-    <div class="sc cy"><div class="sl">Opportunities</div><div class="sn" id="s-opps">—</div><div class="ss" id="s-won-s"></div></div>
-    <div class="sc cp"><div class="sl">Conversations</div><div class="sn" id="s-convs">—</div><div class="ss" id="s-cvtd"></div></div>
-    <div class="sc cr"><div class="sl">Won Deals</div><div class="sn" id="s-won">—</div></div>
-  </div>
-  <div class="c2">
-    <div class="card"><div class="ctitle">Contact Growth</div><div class="csub">Monthly contacts added</div><div class="cw"><canvas id="ch-contacts"></canvas></div></div>
-    <div class="card"><div class="ctitle">Pipeline Status</div><div class="csub">Opportunity breakdown</div><div class="cw"><canvas id="ch-pipeline"></canvas></div></div>
-  </div>
-  <div class="stitle">Recent Activity</div>
-  <div id="recent" class="loading pulse">Loading...</div>
-</div>
-
-<!-- HEALTH -->
-<div class="page" id="page-health">
-  <div class="card" style="padding:0;overflow:hidden">
-    <div class="htabs">
-      <button class="htab active" onclick="setHF('all',this)">All <span class="hcnt" id="hc-all">0</span></button>
-      <button class="htab" onclick="setHF('saas',this)">SaaS <span class="hcnt" id="hc-saas">0</span></button>
-      <button class="htab" onclick="setHF('nonsaas',this)">Non-SaaS <span class="hcnt" id="hc-ns">0</span></button>
-      <button class="htab" onclick="setHF('priority',this)">Priority <span class="hcnt" id="hc-pr">0</span></button>
-      <button class="htab" onclick="setHF('churned',this)">Churned <span class="hcnt" id="hc-ch">0</span></button>
-    </div>
-    <div class="hctrl">
-      <input class="hsrch" id="h-srch" placeholder="🔍 Search sub-account..." oninput="applyHF()"/>
-      <select class="hsel" id="h-stat" onchange="applyHF()"><option value="">All Health</option><option>Thriving</option><option>Healthy</option><option>Steady</option><option>At-risk</option></select>
-      <button class="hb pri" onclick="exportCSV()">⬇ Export CSV</button>
-    </div>
-    <div id="htable"><div class="loading pulse">Loading...</div></div>
-  </div>
-</div>
-
-<!-- ANALYTICS -->
-<div class="page" id="page-analytics">
-  <div class="c3">
-    <div class="card"><div class="ctitle">💰 MRR</div><div class="csub">Monthly Recurring Revenue</div><div id="mrr-d" class="loading pulse">—</div></div>
-    <div class="card"><div class="ctitle">📉 Churn Rate</div><div class="csub">Monthly churn %</div><div id="churn-d" class="loading pulse">—</div></div>
-    <div class="card"><div class="ctitle">👥 Cohorts</div><div class="csub">Contacts by join month</div><div id="cohort-d" class="loading pulse">—</div></div>
-  </div>
-  <div class="c2">
-    <div class="card"><div class="ctitle">Login Activity</div><div class="csub">Monthly new contacts</div><div class="cw"><canvas id="ch-login"></canvas></div></div>
-    <div class="card"><div class="ctitle">MRR Trend</div><div class="csub">Estimated revenue per month</div><div class="cw"><canvas id="ch-mrr"></canvas></div></div>
-  </div>
-  <div class="stitle">Churn Trend</div>
-  <div class="card"><div class="cw"><canvas id="ch-churn"></canvas></div></div>
-</div>
-
-<!-- STAFF -->
-<div class="page" id="page-staff">
-  <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:18px">
-    <div>
-      <div class="stitle">Staff Activity & KPIs</div>
-      <div id="staff-alert" style="display:none" class="alrt"></div>
-      <div id="sfgrid" class="sfgrid"><div class="loading pulse">Loading...</div></div>
-    </div>
-    <div>
-      <div class="stitle">🏆 Leaderboard</div>
-      <div class="card" style="padding:0;overflow:hidden" id="lboard"><div class="loading pulse" style="padding:24px">Loading...</div></div>
-      <div style="margin-top:12px">
-        <div class="stitle">⏱️ Shift Tracker</div>
-        <div class="card" style="padding:0;overflow:hidden" id="shift-board"><div class="loading pulse" style="padding:18px">Loading...</div></div>
-      </div>
-    </div>
-  </div>
-  <div class="stitle">Staff Workload</div>
-  <div class="card"><div class="csub">Contacts per team member</div><div class="cw" style="height:170px"><canvas id="ch-wl"></canvas></div></div>
-  <div style="margin-top:18px" class="stitle">📋 Recent Actions Log</div>
-  <div class="card" style="padding:0;overflow:hidden" id="actions-log"><div class="loading pulse" style="padding:18px">Loading...</div></div>
-</div>
-
-<!-- KANBAN -->
-<div class="page" id="page-kanban">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div class="stitle" style="margin-bottom:0">🗂️ Pipeline Kanban</div>
-    <div style="font-size:11px;color:var(--muted)" id="kb-total">Loading...</div>
-  </div>
-  <div id="kb-board" class="kb-board"><div class="loading pulse">Loading...</div></div>
-</div>
-
-<!-- INVOICES -->
-<div class="page" id="page-invoices">
-  <div style="display:grid;grid-template-columns:1fr 320px;gap:16px">
-    <div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div class="stitle" style="margin-bottom:0">💰 Invoice Tracker</div>
-        <div style="display:flex;gap:6px">
-          <div id="inv-stats" style="font-size:12px;color:var(--muted)"></div>
-          <button class="hb pri" onclick="openInvForm()">+ New Invoice</button>
-        </div>
-      </div>
-      <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
-        <div class="hctrl">
-          <select class="hsel" id="inv-filter" onchange="renderInvoices()"><option value="">All Status</option><option>pending</option><option>paid</option><option>overdue</option></select>
-        </div>
-        <div id="inv-table"><div class="loading pulse">Loading...</div></div>
-      </div>
-      <div class="stitle">📋 Contracts & Expiry Alerts</div>
-      <div class="card" style="padding:0;overflow:hidden">
-        <div class="hctrl"><button class="hb pri" onclick="openContractForm()">+ New Contract</button></div>
-        <div id="contract-table"><div class="loading pulse">Loading...</div></div>
-      </div>
-    </div>
-    <div>
-      <div class="stitle">📦 Onboarding Checklist</div>
-      <div class="card" style="padding:0;overflow:hidden">
-        <div class="hctrl" style="padding:10px 12px">
-          <select class="hsel" id="ob-account" onchange="loadOnboarding()" style="flex:1"></select>
-        </div>
-        <div id="ob-progress-bar" class="prog-bar"><div class="prog-fill" id="ob-fill" style="width:0%"></div></div>
-        <div style="padding:4px 14px 6px;font-size:10px;color:var(--muted)" id="ob-pct">0% complete</div>
-        <div id="ob-list"><div class="loading pulse" style="padding:18px">Loading...</div></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- USAGE -->
-<div class="page" id="page-usage">
-  <div class="stitle">Total Usage Reports</div>
-  <div id="ugrid" class="ugrid"><div class="loading pulse">Loading...</div></div>
-  <div class="c2">
-    <div class="card"><div class="ctitle">Product Adoption</div><div class="csub">Features used across accounts</div><div class="cw"><canvas id="ch-adopt"></canvas></div></div>
-    <div class="card"><div class="ctitle">Staff Performance Score</div><div class="csub">Score per team member</div><div class="cw"><canvas id="ch-perf"></canvas></div></div>
-  </div>
-</div>
-
-<script>
 var hData=[],sfData=[],anaData={},chts={},hFilter='all',isDark=false,sfList=[],invoiceList=[],contractList=[];
 var BASE='';
 function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -1091,7 +776,333 @@ async function loadAll(){await Promise.all([loadSummary(),loadHealth(),loadStaff
 loadAll();
 setInterval(loadAll,5*60*1000);
 setInterval(loadNotifs,30*1000);
-</script>
+
+`);
+});
+
+app.get("/", function(req,res) {
+res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>MAYBEL Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f4f6fb;--surface:#fff;--surface2:#f0f2f8;--border:#e2e6f0;--accent:#6c63ff;--green:#00c49a;--red:#ef4444;--yellow:#f59e0b;--blue:#3b82f6;--purple:#8b5cf6;--text:#1a1d2e;--muted:#8a92a6;--sh:0 1px 4px rgba(0,0,0,.06)}
+[data-theme="dark"]{--bg:#0a0c10;--surface:#13161d;--surface2:#1a1e28;--border:#252a38;--text:#e8eaf0;--muted:#6b7280;--sh:0 1px 4px rgba(0,0,0,.3)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 18px;display:flex;align-items:center;height:52px;gap:14px;position:sticky;top:0;z-index:200;box-shadow:var(--sh)}
+.logo{font-weight:800;font-size:16px;letter-spacing:-.5px;flex-shrink:0}.logo span{color:var(--accent)}
+.nav{display:flex;gap:2px;flex:1;overflow-x:auto}.nav::-webkit-scrollbar{display:none}
+.nbtn{padding:6px 11px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:500;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;white-space:nowrap;transition:.15s}
+.nbtn:hover{color:var(--text);background:var(--surface2)}.nbtn.active{color:var(--accent);background:rgba(108,99,255,.1);font-weight:600}
+.hdr-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.ibtn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;position:relative;transition:.15s}
+.ibtn:hover{border-color:var(--accent)}.ndot{position:absolute;top:4px;right:4px;width:7px;height:7px;background:var(--red);border-radius:50%;border:2px solid var(--surface);display:none}
+.lupd{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace}
+.page{display:none;padding:18px;max-width:1440px;margin:0 auto}.page.active{display:block}
+.sg{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px}
+@media(max-width:900px){.sg{grid-template-columns:repeat(3,1fr)}}@media(max-width:560px){.sg{grid-template-columns:repeat(2,1fr)}}
+.sc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;position:relative;overflow:hidden;box-shadow:var(--sh)}
+.sc::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:12px 12px 0 0}
+.sc.ca::after{background:var(--accent)}.sc.cg::after{background:var(--green)}.sc.cb::after{background:var(--blue)}.sc.cy::after{background:var(--yellow)}.sc.cp::after{background:var(--purple)}.sc.cr::after{background:var(--red)}
+.sl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;font-weight:600}
+.sn{font-size:24px;font-weight:700;color:var(--text);line-height:1}.ss{font-size:11px;color:var(--muted);margin-top:2px}
+.stitle{font-size:13px;font-weight:700;color:var(--text);margin-bottom:11px;display:flex;align-items:center;gap:7px}
+.stitle::before{content:'';width:3px;height:14px;background:var(--accent);border-radius:2px;display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--sh)}
+.ctitle{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}.csub{font-size:11px;color:var(--muted);margin-bottom:12px}
+.c2{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:18px}
+.c3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
+.c4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+@media(max-width:768px){.c2,.c3,.c4{grid-template-columns:1fr}}
+.cw{position:relative;height:190px}
+.htabs{display:flex;border-bottom:2px solid var(--border);overflow-x:auto}.htabs::-webkit-scrollbar{display:none}
+.htab{padding:9px 14px;border:none;border-bottom:2px solid transparent;background:transparent;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:var(--muted);margin-bottom:-2px;white-space:nowrap;display:flex;align-items:center;gap:5px;transition:.15s}
+.htab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.hcnt{font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.htab.active .hcnt{background:rgba(108,99,255,.15);color:var(--accent)}
+.hctrl{display:flex;gap:7px;padding:11px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center}
+.hsrch{flex:1;min-width:150px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none}
+.hsrch:focus{border-color:var(--accent)}
+.hsel{padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none;cursor:pointer}
+.hb{padding:7px 12px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:12px;font-weight:500;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);transition:.15s}
+.hb:hover{border-color:var(--accent)}.hb.pri{background:var(--accent);color:#fff;border-color:var(--accent)}
+.hb.danger{background:rgba(239,68,68,.1);color:var(--red);border-color:rgba(239,68,68,.3)}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--surface2)}
+th{padding:8px 11px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap}
+td{padding:10px 11px;font-size:12px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle}
+tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700}
+.badge.thriving{background:rgba(0,196,154,.12);color:var(--green)}.badge.healthy{background:rgba(59,130,246,.12);color:var(--blue)}
+.badge.steady{background:rgba(245,158,11,.12);color:var(--yellow)}.badge.atrisk{background:rgba(239,68,68,.12);color:var(--red)}
+.badge.paid{background:rgba(0,196,154,.12);color:var(--green)}.badge.pending{background:rgba(245,158,11,.12);color:var(--yellow)}
+.badge.overdue{background:rgba(239,68,68,.12);color:var(--red)}.badge.active{background:rgba(59,130,246,.12);color:var(--blue)}
+.pb{display:inline-flex;align-items:center;gap:5px}.pbl{font-size:11px;font-weight:500;min-width:30px}
+.pbbar{width:70px;height:4px;background:var(--border);border-radius:999px;overflow:hidden}.pbfill{height:4px;border-radius:999px;background:var(--accent)}
+.sfgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:18px}
+.sfc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px;box-shadow:var(--sh);transition:.15s}
+.sfc:hover{border-color:var(--accent)}.sfc.act{border-color:rgba(0,196,154,.35)}.sfc.onshift{border-color:rgba(108,99,255,.5);box-shadow:0 0 0 2px rgba(108,99,255,.1)}
+.sfav{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#a78bfa);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;margin-bottom:7px}
+.sfn{font-weight:600;font-size:12px;color:var(--text)}.sfe{font-size:10px;color:var(--muted);margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sfm{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.sm{background:var(--surface2);border-radius:6px;padding:6px;text-align:center;border:1px solid var(--border)}
+.smn{font-size:16px;font-weight:700;color:var(--text)}.sml{font-size:9px;color:var(--muted)}
+.kpi-row{margin:4px 0}.kpi-lbl{font-size:10px;color:var(--muted);display:flex;justify-content:space-between;margin-bottom:2px}
+.kpi-bar{height:5px;background:var(--border);border-radius:999px;overflow:hidden}.kpi-fill{height:5px;border-radius:999px;transition:width .4s}
+.shift-btn{width:100%;padding:5px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:10px;font-weight:600;font-family:'DM Sans',sans-serif;margin-top:7px;transition:.15s}
+.shift-btn.in{background:rgba(0,196,154,.1);color:var(--green);border-color:rgba(0,196,154,.3)}
+.shift-btn.out{background:rgba(239,68,68,.1);color:var(--red);border-color:rgba(239,68,68,.3)}
+.la-tag{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600}
+.la-tag.contact{background:rgba(59,130,246,.1);color:var(--blue)}.la-tag.opportunity{background:rgba(108,99,255,.1);color:var(--accent)}.la-tag.conversation{background:rgba(0,196,154,.1);color:var(--green)}
+.lbr{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border)}.lbr:last-child{border-bottom:none}
+.lbrk{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.lbrk.g{background:#fef3c7;color:#b45309}.lbrk.s{background:#f1f5f9;color:#64748b}.lbrk.b{background:#fef0e7;color:#c2410c}.lbrk.o{background:var(--surface2);color:var(--muted)}
+.lbbar{flex:1;height:5px;background:var(--border);border-radius:999px;overflow:hidden}.lbfill{height:5px;border-radius:999px}
+.movl{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;align-items:center;justify-content:center}
+.movl.open{display:flex}
+.mo{background:var(--surface);border-radius:16px;padding:22px;width:90%;max-width:560px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.mohd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
+.mocl{border:none;background:none;font-size:18px;cursor:pointer;color:var(--muted)}
+.npnl{display:none;position:fixed;top:56px;right:14px;width:300px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:300;overflow:hidden}
+.npnl.open{display:block}
+.nph{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600}
+.npi{padding:9px 14px;border-bottom:1px solid var(--border);font-size:11px;display:flex;gap:8px;align-items:flex-start}
+.npi.unread{background:rgba(108,99,255,.04)}.npt{font-size:10px;color:var(--muted);margin-top:2px}
+.ugrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
+@media(max-width:600px){.ugrid{grid-template-columns:1fr 1fr}}
+.uc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;align-items:center;gap:10px;box-shadow:var(--sh)}
+.uico{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.un{font-size:20px;font-weight:700;color:var(--text)}.ul{font-size:11px;color:var(--muted)}
+.mrrb{font-size:28px;font-weight:800;color:var(--green)}
+.mrrt{font-size:11px;padding:2px 7px;border-radius:999px;background:rgba(0,196,154,.12);color:var(--green);font-weight:600;display:inline-block;margin-top:3px}
+.csms{padding:3px 7px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;cursor:pointer;outline:none}
+.ab{width:24px;height:24px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:11px;display:inline-flex;align-items:center;justify-content:center;transition:.15s}
+.ab:hover{border-color:var(--accent)}
+.alrt{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#b91c1c}
+.sdot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
+.sdot.on{background:var(--green)}.sdot.td{background:var(--yellow)}.sdot.off{background:var(--red)}
+.loading{text-align:center;padding:36px;color:var(--muted);font-size:12px}
+.pulse{animation:pulse 1.4s infinite}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.rt-good{color:var(--green);font-weight:700}.rt-ok{color:var(--yellow);font-weight:700}.rt-bad{color:var(--red);font-weight:700}
+.kpi-input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none;margin-top:4px}
+.kpi-input:focus{border-color:var(--accent)}
+.save-btn{width:100%;padding:10px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:12px}
+.days-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(108,99,255,.1);color:var(--accent)}
+/* KANBAN */
+.kb-board{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:start;overflow-x:auto;padding-bottom:10px}
+@media(max-width:1100px){.kb-board{grid-template-columns:repeat(3,1fr)}}
+.kb-col{background:var(--surface2);border-radius:12px;padding:10px;border:1px solid var(--border);min-height:200px}
+.kb-col-hd{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.kb-cnt{font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;background:var(--surface);color:var(--muted)}
+.kb-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px;margin-bottom:6px;font-size:11px;box-shadow:var(--sh);cursor:default;transition:.15s}
+.kb-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.kb-name{font-weight:600;color:var(--text);margin-bottom:3px}.kb-val{color:var(--green);font-weight:700;font-size:12px}
+.kb-contact{color:var(--muted);font-size:10px;margin-top:2px}
+/* AI SUMMARY */
+.ai-bubble{background:linear-gradient(135deg,rgba(108,99,255,.08),rgba(139,92,246,.06));border:1px solid rgba(108,99,255,.2);border-radius:12px;padding:14px;font-size:12px;line-height:1.7;color:var(--text);margin-top:10px;position:relative}
+.ai-bubble::before{content:'🤖';position:absolute;top:-10px;left:12px;font-size:16px;background:var(--surface);padding:0 4px}
+.ai-tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(108,99,255,.12);color:var(--accent);margin:2px}
+.ai-risk{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:8px 12px;font-size:11px;color:var(--red);margin-top:8px}
+/* CHECKLIST */
+.cl-item{display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:.1s}
+.cl-item:last-child{border-bottom:none}.cl-item:hover{background:var(--surface2)}
+.cl-cb{width:16px;height:16px;border-radius:4px;border:2px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:.15s}
+.cl-cb.done{background:var(--green);border-color:var(--green);color:#fff;font-size:10px}
+.cl-label{font-size:12px;flex:1}.cl-label.done{text-decoration:line-through;color:var(--muted)}
+.prog-bar{height:6px;background:var(--border);border-radius:999px;overflow:hidden;margin:8px 14px}
+.prog-fill{height:6px;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--green));transition:width .4s}
+/* INVOICE FORM */
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-label{font-size:11px;color:var(--muted);font-weight:600}
+/* CONTRACT EXPIRY */
+.exp-good{color:var(--green)}.exp-warn{color:var(--yellow)}.exp-bad{color:var(--red)}
+/* AI LOADING */
+.ai-loading{display:flex;gap:4px;align-items:center;padding:12px 0}
+.ai-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:bounce .8s infinite}
+.ai-dot:nth-child(2){animation-delay:.15s}.ai-dot:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+/* SHARE */
+.share-row{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)}
+.share-url{flex:1;font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.copy-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;color:var(--text);white-space:nowrap;transition:.15s}
+.copy-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+</style>
+</head>
+<body>
+
+<div class="npnl" id="npnl">
+  <div class="nph"><span>🔔 Notifications</span><button onclick="markRead()" style="border:none;background:none;font-size:11px;color:var(--accent);cursor:pointer;font-family:'DM Sans',sans-serif">Mark all read</button></div>
+  <div id="nlist"><div class="loading" style="padding:18px">Loading...</div></div>
+</div>
+
+<div class="movl" id="movl" onclick="closeMo(event)">
+  <div class="mo">
+    <div class="mohd">
+      <div><div style="font-size:15px;font-weight:700" id="mo-title">—</div><div style="font-size:11px;color:var(--muted)" id="mo-email"></div></div>
+      <button class="mocl" onclick="closeMoDirect()">✕</button>
+    </div>
+    <div id="mo-body"></div>
+  </div>
+</div>
+
+<div class="header">
+  <div class="logo">MAY<span>BEL</span></div>
+  <nav class="nav">
+    <button class="nbtn active" onclick="showPage('dashboard')">📊 Dashboard</button>
+    <button class="nbtn" onclick="showPage('health')">❤️ Health</button>
+    <button class="nbtn" onclick="showPage('analytics')">📈 Analytics</button>
+    <button class="nbtn" onclick="showPage('staff')">👥 Staff</button>
+    <button class="nbtn" onclick="showPage('kanban')">🗂️ Kanban</button>
+    <button class="nbtn" onclick="showPage('invoices')">💰 Invoices</button>
+    <button class="nbtn" onclick="showPage('usage')">⚡ Usage</button>
+  </nav>
+  <div class="hdr-right">
+    <span class="lupd" id="lupd">—</span>
+    <button class="ibtn" onclick="toggleNotif()">🔔<span class="ndot" id="ndot"></span></button>
+    <button class="ibtn" onclick="toggleTheme()" id="tbtn">🌙</button>
+    <button class="ibtn" onclick="loadAll()">↻</button>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="page active" id="page-dashboard">
+  <div class="sg">
+    <div class="sc ca"><div class="sl">Total Users</div><div class="sn" id="s-users">—</div></div>
+    <div class="sc cb"><div class="sl">Sub-Accounts</div><div class="sn" id="s-subs">—</div></div>
+    <div class="sc cg"><div class="sl">Contacts</div><div class="sn" id="s-contacts">—</div><div class="ss" id="s-ctd"></div></div>
+    <div class="sc cy"><div class="sl">Opportunities</div><div class="sn" id="s-opps">—</div><div class="ss" id="s-won-s"></div></div>
+    <div class="sc cp"><div class="sl">Conversations</div><div class="sn" id="s-convs">—</div><div class="ss" id="s-cvtd"></div></div>
+    <div class="sc cr"><div class="sl">Won Deals</div><div class="sn" id="s-won">—</div></div>
+  </div>
+  <div class="c2">
+    <div class="card"><div class="ctitle">Contact Growth</div><div class="csub">Monthly contacts added</div><div class="cw"><canvas id="ch-contacts"></canvas></div></div>
+    <div class="card"><div class="ctitle">Pipeline Status</div><div class="csub">Opportunity breakdown</div><div class="cw"><canvas id="ch-pipeline"></canvas></div></div>
+  </div>
+  <div class="stitle">Recent Activity</div>
+  <div id="recent" class="loading pulse">Loading...</div>
+</div>
+
+<!-- HEALTH -->
+<div class="page" id="page-health">
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="htabs">
+      <button class="htab active" onclick="setHF('all',this)">All <span class="hcnt" id="hc-all">0</span></button>
+      <button class="htab" onclick="setHF('saas',this)">SaaS <span class="hcnt" id="hc-saas">0</span></button>
+      <button class="htab" onclick="setHF('nonsaas',this)">Non-SaaS <span class="hcnt" id="hc-ns">0</span></button>
+      <button class="htab" onclick="setHF('priority',this)">Priority <span class="hcnt" id="hc-pr">0</span></button>
+      <button class="htab" onclick="setHF('churned',this)">Churned <span class="hcnt" id="hc-ch">0</span></button>
+    </div>
+    <div class="hctrl">
+      <input class="hsrch" id="h-srch" placeholder="🔍 Search sub-account..." oninput="applyHF()"/>
+      <select class="hsel" id="h-stat" onchange="applyHF()"><option value="">All Health</option><option>Thriving</option><option>Healthy</option><option>Steady</option><option>At-risk</option></select>
+      <button class="hb pri" onclick="exportCSV()">⬇ Export CSV</button>
+    </div>
+    <div id="htable"><div class="loading pulse">Loading...</div></div>
+  </div>
+</div>
+
+<!-- ANALYTICS -->
+<div class="page" id="page-analytics">
+  <div class="c3">
+    <div class="card"><div class="ctitle">💰 MRR</div><div class="csub">Monthly Recurring Revenue</div><div id="mrr-d" class="loading pulse">—</div></div>
+    <div class="card"><div class="ctitle">📉 Churn Rate</div><div class="csub">Monthly churn %</div><div id="churn-d" class="loading pulse">—</div></div>
+    <div class="card"><div class="ctitle">👥 Cohorts</div><div class="csub">Contacts by join month</div><div id="cohort-d" class="loading pulse">—</div></div>
+  </div>
+  <div class="c2">
+    <div class="card"><div class="ctitle">Login Activity</div><div class="csub">Monthly new contacts</div><div class="cw"><canvas id="ch-login"></canvas></div></div>
+    <div class="card"><div class="ctitle">MRR Trend</div><div class="csub">Estimated revenue per month</div><div class="cw"><canvas id="ch-mrr"></canvas></div></div>
+  </div>
+  <div class="stitle">Churn Trend</div>
+  <div class="card"><div class="cw"><canvas id="ch-churn"></canvas></div></div>
+</div>
+
+<!-- STAFF -->
+<div class="page" id="page-staff">
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:18px">
+    <div>
+      <div class="stitle">Staff Activity & KPIs</div>
+      <div id="staff-alert" style="display:none" class="alrt"></div>
+      <div id="sfgrid" class="sfgrid"><div class="loading pulse">Loading...</div></div>
+    </div>
+    <div>
+      <div class="stitle">🏆 Leaderboard</div>
+      <div class="card" style="padding:0;overflow:hidden" id="lboard"><div class="loading pulse" style="padding:24px">Loading...</div></div>
+      <div style="margin-top:12px">
+        <div class="stitle">⏱️ Shift Tracker</div>
+        <div class="card" style="padding:0;overflow:hidden" id="shift-board"><div class="loading pulse" style="padding:18px">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="stitle">Staff Workload</div>
+  <div class="card"><div class="csub">Contacts per team member</div><div class="cw" style="height:170px"><canvas id="ch-wl"></canvas></div></div>
+  <div style="margin-top:18px" class="stitle">📋 Recent Actions Log</div>
+  <div class="card" style="padding:0;overflow:hidden" id="actions-log"><div class="loading pulse" style="padding:18px">Loading...</div></div>
+</div>
+
+<!-- KANBAN -->
+<div class="page" id="page-kanban">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div class="stitle" style="margin-bottom:0">🗂️ Pipeline Kanban</div>
+    <div style="font-size:11px;color:var(--muted)" id="kb-total">Loading...</div>
+  </div>
+  <div id="kb-board" class="kb-board"><div class="loading pulse">Loading...</div></div>
+</div>
+
+<!-- INVOICES -->
+<div class="page" id="page-invoices">
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:16px">
+    <div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="stitle" style="margin-bottom:0">💰 Invoice Tracker</div>
+        <div style="display:flex;gap:6px">
+          <div id="inv-stats" style="font-size:12px;color:var(--muted)"></div>
+          <button class="hb pri" onclick="openInvForm()">+ New Invoice</button>
+        </div>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
+        <div class="hctrl">
+          <select class="hsel" id="inv-filter" onchange="renderInvoices()"><option value="">All Status</option><option>pending</option><option>paid</option><option>overdue</option></select>
+        </div>
+        <div id="inv-table"><div class="loading pulse">Loading...</div></div>
+      </div>
+      <div class="stitle">📋 Contracts & Expiry Alerts</div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="hctrl"><button class="hb pri" onclick="openContractForm()">+ New Contract</button></div>
+        <div id="contract-table"><div class="loading pulse">Loading...</div></div>
+      </div>
+    </div>
+    <div>
+      <div class="stitle">📦 Onboarding Checklist</div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="hctrl" style="padding:10px 12px">
+          <select class="hsel" id="ob-account" onchange="loadOnboarding()" style="flex:1"></select>
+        </div>
+        <div id="ob-progress-bar" class="prog-bar"><div class="prog-fill" id="ob-fill" style="width:0%"></div></div>
+        <div style="padding:4px 14px 6px;font-size:10px;color:var(--muted)" id="ob-pct">0% complete</div>
+        <div id="ob-list"><div class="loading pulse" style="padding:18px">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- USAGE -->
+<div class="page" id="page-usage">
+  <div class="stitle">Total Usage Reports</div>
+  <div id="ugrid" class="ugrid"><div class="loading pulse">Loading...</div></div>
+  <div class="c2">
+    <div class="card"><div class="ctitle">Product Adoption</div><div class="csub">Features used across accounts</div><div class="cw"><canvas id="ch-adopt"></canvas></div></div>
+    <div class="card"><div class="ctitle">Staff Performance Score</div><div class="csub">Score per team member</div><div class="cw"><canvas id="ch-perf"></canvas></div></div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+
 </body>
 </html>`);
 });
