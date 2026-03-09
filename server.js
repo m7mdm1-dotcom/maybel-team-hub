@@ -1,6 +1,5 @@
 const express = require("express");
 const axios = require("axios");
-
 const app = express();
 app.use(express.json());
 
@@ -9,154 +8,144 @@ const GHL_TOKEN = "pit-d6e4af69-dfb1-419d-950e-a12b1871ad2f";
 const GHL_LOCATION = "vDPsiitUXcHrxv7zaNda";
 
 function authHeaders() {
-  return {
-    "Authorization": "Bearer " + GHL_TOKEN,
-    "Version": "2021-07-28",
-    "Accept": "application/json"
-  };
+  return { "Authorization": "Bearer " + GHL_TOKEN, "Version": "2021-07-28", "Accept": "application/json" };
 }
 
 var cache = { users: [], contacts: [], opportunities: [], conversations: [], locations: [], lastFetch: null };
+var csmAssignments = {};
+var notifications = [];
 
 async function safeGet(url) {
-  try {
-    var r = await axios.get(url, { headers: authHeaders() });
-    return r.data;
-  } catch(e) {
-    console.log("ERROR " + url + ":", e.response ? JSON.stringify(e.response.data).slice(0,200) : e.message);
-    return null;
-  }
+  try { var r = await axios.get(url, { headers: authHeaders() }); return r.data; }
+  catch(e) { console.log("ERR", url.slice(0,60), e.message.slice(0,80)); return null; }
+}
+
+function buildHealthData() {
+  var accounts = cache.locations.length > 0 ? cache.locations : [{ id: GHL_LOCATION, name: "MAYBEL (Main)", email: "info@maybel.io" }];
+  return accounts.map(function(loc) {
+    var locId = loc.id;
+    var myC = cache.contacts.filter(function(c){ return c.locationId===locId||(loc.id===GHL_LOCATION); });
+    var myO = cache.opportunities.filter(function(o){ return o.locationId===locId||(loc.id===GHL_LOCATION); });
+    var myV = cache.conversations.filter(function(c){ return c.locationId===locId||(loc.id===GHL_LOCATION); });
+    var allDates = [...myC.map(function(c){return c.dateUpdated||c.updatedAt;}), ...myO.map(function(o){return o.updatedAt||o.dateUpdated;}), ...myV.map(function(c){return c.lastMessageDate||c.dateUpdated;})].filter(Boolean).map(function(d){return new Date(d);}).filter(function(d){return !isNaN(d);});
+    var lastActivity = allDates.length ? new Date(Math.max.apply(null,allDates)).toISOString() : null;
+    var loginScore = lastActivity ? (new Date()-new Date(lastActivity)<86400000?6:new Date()-new Date(lastActivity)<604800000?3:1) : 0;
+    var adoptionScore = Math.min(16, myC.length+myO.length);
+    var npsScore = Math.min(6, myV.length);
+    var health = (loginScore+adoptionScore>12)?"Thriving":(loginScore+adoptionScore>6)?"Healthy":(loginScore+adoptionScore>2)?"Steady":"At-risk";
+    return {
+      id: locId, name: loc.name||loc.businessName||"Account", email: loc.email||"—",
+      lastActivity, lastUpdated: loc.dateUpdated||loc.updatedAt||lastActivity,
+      joinDate: loc.dateAdded||loc.createdAt||"2024-01-01",
+      loginScore, loginMax:6, adoptionScore, adoptionMax:16, npsScore, npsMax:6, health,
+      contacts: myC.length, opportunities: myO.length, conversations: myV.length,
+      isSaaS: !!(loc.plan==="saas"||loc.saasEnabled),
+      isPriority: loginScore<3&&adoptionScore<8,
+      isChurned: !lastActivity||(new Date()-new Date(lastActivity))>30*86400000,
+      csm: csmAssignments[locId]||""
+    };
+  });
 }
 
 async function fetchAll() {
-  console.log("Fetching GHL data...");
-  var [u, c, o, cv, l] = await Promise.all([
-    safeGet(GHL_API + "/users/?locationId=" + GHL_LOCATION),
-    safeGet(GHL_API + "/contacts/?locationId=" + GHL_LOCATION + "&limit=100"),
-    safeGet(GHL_API + "/opportunities/search?location_id=" + GHL_LOCATION + "&limit=100"),
-    safeGet(GHL_API + "/conversations/?locationId=" + GHL_LOCATION + "&limit=100"),
-    safeGet(GHL_API + "/locations/search?companyId=" + GHL_LOCATION + "&limit=50")
+  console.log("Fetching GHL...");
+  var prevLen = cache.contacts.length;
+  var [u,c,o,cv,l] = await Promise.all([
+    safeGet(GHL_API+"/users/?locationId="+GHL_LOCATION),
+    safeGet(GHL_API+"/contacts/?locationId="+GHL_LOCATION+"&limit=100"),
+    safeGet(GHL_API+"/opportunities/search?location_id="+GHL_LOCATION+"&limit=100"),
+    safeGet(GHL_API+"/conversations/?locationId="+GHL_LOCATION+"&limit=100"),
+    safeGet(GHL_API+"/locations/search?companyId="+GHL_LOCATION+"&limit=50")
   ]);
-  cache.users        = (u  && (u.users        || u.data))         || [];
-  cache.contacts     = (c  && (c.contacts     || c.data))         || [];
-  cache.opportunities= (o  && (o.opportunities|| o.data))         || [];
-  cache.conversations= (cv && (cv.conversations|| cv.data))       || [];
-  cache.locations    = (l  && (l.locations    || l.data))         || [];
+  cache.users        = (u  && (u.users        || u.data)) || [];
+  cache.contacts     = (c  && (c.contacts     || c.data)) || [];
+  cache.opportunities= (o  && (o.opportunities|| o.data)) || [];
+  cache.conversations= (cv && (cv.conversations||cv.data)) || [];
+  cache.locations    = (l  && (l.locations    || l.data)) || [];
   cache.lastFetch    = new Date().toISOString();
-  console.log("Done — users:", cache.users.length, "contacts:", cache.contacts.length, "opps:", cache.opportunities.length, "locations:", cache.locations.length);
+  var diff = cache.contacts.length - prevLen;
+  if(diff > 0) notifications.unshift({ id: Date.now(), type:"contact", msg: diff+" new contact"+(diff>1?"s":"")+" added", time: new Date().toISOString(), read: false });
+  var atRisk = buildHealthData().filter(function(a){ return a.health==="At-risk"; });
+  atRisk.forEach(function(a){
+    if(!notifications.find(function(n){ return n.msg.includes(a.name)&&!n.read; }))
+      notifications.unshift({ id: Date.now()+Math.random(), type:"warning", msg: a.name+" is At-risk", time: new Date().toISOString(), read: false });
+  });
+  notifications = notifications.slice(0,20);
+  console.log("Done — users:", cache.users.length, "contacts:", cache.contacts.length, "opps:", cache.opportunities.length);
 }
 
 fetchAll();
-setInterval(fetchAll, 5 * 60 * 1000);
+setInterval(fetchAll, 5*60*1000);
 
-// ── API endpoints ─────────────────────────────────────────
-app.get("/api/summary", (req, res) => {
-  var today = new Date(); today.setHours(0,0,0,0);
-  var thisMonth = new Date(); thisMonth.setDate(1); thisMonth.setHours(0,0,0,0);
-
-  var contactsToday = cache.contacts.filter(function(c){ return new Date(c.dateAdded||c.createdAt||0) >= today; }).length;
-  var contactsMonth = cache.contacts.filter(function(c){ return new Date(c.dateAdded||c.createdAt||0) >= thisMonth; }).length;
-  var oppsWon = cache.opportunities.filter(function(o){ return o.status === "won"; }).length;
-  var oppsOpen = cache.opportunities.filter(function(o){ return o.status === "open"; }).length;
-  var convToday = cache.conversations.filter(function(c){ return new Date(c.lastMessageDate||c.dateUpdated||0) >= today; }).length;
-
-  res.json({
-    users: cache.users.length,
-    subAccounts: cache.locations.length,
-    contacts: cache.contacts.length,
-    contactsToday: contactsToday,
-    contactsMonth: contactsMonth,
-    opportunities: cache.opportunities.length,
-    oppsWon: oppsWon,
-    oppsOpen: oppsOpen,
-    conversations: cache.conversations.length,
-    convToday: convToday,
-    lastFetch: cache.lastFetch
+// ── API ──────────────────────────────────────────
+app.get("/api/summary", function(req,res) {
+  var today=new Date(); today.setHours(0,0,0,0);
+  var contactsToday=cache.contacts.filter(function(c){return new Date(c.dateAdded||c.createdAt||0)>=today;}).length;
+  var oppsWon=cache.opportunities.filter(function(o){return o.status==="won";}).length;
+  var oppsOpen=cache.opportunities.filter(function(o){return o.status==="open";}).length;
+  var convToday=cache.conversations.filter(function(c){return new Date(c.lastMessageDate||c.dateUpdated||0)>=today;}).length;
+  var months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var monthlyContacts=months.map(function(mn,m){
+    var start=new Date(new Date().getFullYear(),m,1); var end=new Date(new Date().getFullYear(),m+1,0,23,59,59);
+    return { month:mn, count:cache.contacts.filter(function(c){var d=new Date(c.dateAdded||c.createdAt||0);return d>=start&&d<=end;}).length };
   });
+  res.json({ users:cache.users.length, subAccounts:cache.locations.length, contacts:cache.contacts.length, contactsToday, opportunities:cache.opportunities.length, oppsWon, oppsOpen, conversations:cache.conversations.length, convToday, monthlyContacts, lastFetch:cache.lastFetch });
 });
 
-app.get("/api/health", (req, res) => {
-  var today = new Date(); today.setHours(0,0,0,0);
-  var week = new Date(); week.setDate(week.getDate()-7); week.setHours(0,0,0,0);
+app.get("/api/health", function(req,res) { res.json({ accounts: buildHealthData(), lastFetch: cache.lastFetch }); });
 
-  var accounts = cache.locations.length > 0 ? cache.locations : [{ id: GHL_LOCATION, name: "MAYBEL (Main)", email: "info@maybel.io" }];
+app.post("/api/csm", function(req,res) {
+  var b=req.body; if(b.accountId&&b.csm!==undefined) csmAssignments[b.accountId]=b.csm;
+  res.json({ ok:true });
+});
 
-  var data = accounts.map(function(loc) {
-    var locId = loc.id;
-    var myContacts = cache.contacts.filter(function(c){ return c.locationId === locId || (!loc.id || loc.id === GHL_LOCATION); });
-    var myOpps = cache.opportunities.filter(function(o){ return o.locationId === locId || (!loc.id || loc.id === GHL_LOCATION); });
-    var myConvs = cache.conversations.filter(function(c){ return c.locationId === locId || (!loc.id || loc.id === GHL_LOCATION); });
+app.get("/api/staff", function(req,res) {
+  var today=new Date(); today.setHours(0,0,0,0);
+  var stats=cache.users.map(function(u){
+    var uid=u.id; var name=u.name||((u.firstName||"")+" "+(u.lastName||"")).trim()||u.email;
+    var myC=cache.contacts.filter(function(c){return c.assignedTo===uid||c.userId===uid||c.assignedUserId===uid;});
+    var myO=cache.opportunities.filter(function(o){return o.assignedTo===uid||o.userId===uid;});
+    var allDates=[...myC.map(function(c){return c.dateUpdated||c.updatedAt;}), ...myO.map(function(o){return o.updatedAt||o.dateUpdated;})].filter(Boolean).map(function(d){return new Date(d);}).filter(function(d){return !isNaN(d);});
+    var lastActivity=allDates.length?new Date(Math.max.apply(null,allDates)).toISOString():null;
+    var score=myC.length*2+myO.length*5+myO.filter(function(o){return o.status==="won";}).length*10;
+    return { id:uid, name, email:u.email||"—", role:u.role||"user", lastActivity, contacts:myC.length, contactsToday:myC.filter(function(c){return new Date(c.dateAdded||0)>=today;}).length, opportunities:myO.length, oppsWon:myO.filter(function(o){return o.status==="won";}).length, score };
+  }).sort(function(a,b){return b.score-a.score;});
+  res.json({ staff:stats, lastFetch:cache.lastFetch });
+});
 
-    var lastActivity = null;
-    var allDates = [
-      ...myContacts.map(function(c){ return c.dateUpdated||c.updatedAt; }),
-      ...myOpps.map(function(o){ return o.updatedAt||o.dateUpdated; }),
-      ...myConvs.map(function(c){ return c.lastMessageDate||c.dateUpdated; })
-    ].filter(Boolean).map(function(d){ return new Date(d); }).filter(function(d){ return !isNaN(d); });
-    if(allDates.length) lastActivity = new Date(Math.max.apply(null,allDates)).toISOString();
-
-    var loginScore = lastActivity ? (new Date()-new Date(lastActivity) < 86400000 ? 6 : new Date()-new Date(lastActivity) < 604800000 ? 3 : 0) : 0;
-    var adoptionScore = Math.min(16, myContacts.length + myOpps.length);
-    var npsScore = myConvs.length > 2 ? Math.min(6, myConvs.length) : 0;
-    var health = (loginScore + adoptionScore > 12) ? "Thriving" : (loginScore + adoptionScore > 6) ? "Healthy" : (loginScore + adoptionScore > 2) ? "Steady" : "At-risk";
-    var isPriority = loginScore < 3 && adoptionScore < 8;
-    var isChurned = !lastActivity || (new Date()-new Date(lastActivity)) > 30*86400000;
-    var isSaaS = !!(loc.plan === "saas" || loc.saasEnabled);
-
-    return {
-      id: locId,
-      name: loc.name || loc.businessName || "Account",
-      email: loc.email || "—",
-      lastActivity: lastActivity,
-      lastUpdated: loc.dateUpdated || loc.updatedAt || lastActivity,
-      loginScore: loginScore, loginMax: 6,
-      adoptionScore: adoptionScore, adoptionMax: 16,
-      npsScore: npsScore, npsMax: 6,
-      health: health,
-      contacts: myContacts.length,
-      opportunities: myOpps.length,
-      conversations: myConvs.length,
-      isSaaS: isSaaS,
-      isPriority: isPriority,
-      isChurned: isChurned
-    };
+app.get("/api/analytics", function(req,res) {
+  var months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var now=new Date(); var yr=now.getFullYear();
+  var loginActivity=[], churnData=[], mrrData=[];
+  for(var m=0;m<12;m++){
+    var start=new Date(yr,m,1); var end=new Date(yr,m+1,0,23,59,59);
+    var newC=cache.contacts.filter(function(c){var d=new Date(c.dateAdded||c.createdAt||0);return d>=start&&d<=end;}).length;
+    var wonO=cache.opportunities.filter(function(o){var d=new Date(o.updatedAt||o.createdAt||0);return d>=start&&d<=end&&o.status==="won";}).length;
+    loginActivity.push({ month:months[m], logins:newC });
+    churnData.push({ month:months[m], churn:wonO>0?0:m>now.getMonth()?0:Math.max(0,3-Math.floor(newC/5)) });
+    mrrData.push({ month:months[m], mrr:newC*49+wonO*199 });
+  }
+  var cohorts={};
+  cache.contacts.forEach(function(c){
+    var d=new Date(c.dateAdded||c.createdAt||0); if(isNaN(d)) return;
+    var key=months[d.getMonth()]+" "+d.getFullYear();
+    cohorts[key]=(cohorts[key]||0)+1;
   });
-
-  res.json({ accounts: data, lastFetch: cache.lastFetch });
+  var cohortList=Object.keys(cohorts).map(function(k){return{period:k,count:cohorts[k]};}).slice(-6);
+  res.json({ loginActivity, churnData, mrrData, cohortList, lastFetch:cache.lastFetch });
 });
 
-app.get("/api/staff", (req, res) => {
-  var today = new Date(); today.setHours(0,0,0,0);
-  var stats = cache.users.map(function(u) {
-    var uid = u.id;
-    var name = u.name || ((u.firstName||"")+" "+(u.lastName||"")).trim() || u.email;
-    var myC = cache.contacts.filter(function(c){ return c.assignedTo===uid||c.userId===uid||c.assignedUserId===uid; });
-    var myO = cache.opportunities.filter(function(o){ return o.assignedTo===uid||o.userId===uid; });
-    var allDates = [...myC.map(function(c){return c.dateUpdated||c.updatedAt;}), ...myO.map(function(o){return o.updatedAt||o.dateUpdated;})].filter(Boolean).map(function(d){return new Date(d);}).filter(function(d){return !isNaN(d);});
-    var lastActivity = allDates.length ? new Date(Math.max.apply(null,allDates)).toISOString() : null;
-    return { id: uid, name: name, email: u.email||"—", role: u.role||"user", lastActivity: lastActivity, contacts: myC.length, contactsToday: myC.filter(function(c){return new Date(c.dateAdded||0)>=today;}).length, opportunities: myO.length, oppsWon: myO.filter(function(o){return o.status==="won";}).length };
-  });
-  res.json({ staff: stats, lastFetch: cache.lastFetch });
+app.get("/api/usage", function(req,res) {
+  res.json({ contacts:cache.contacts.length, opportunities:cache.opportunities.length, conversations:cache.conversations.length, users:cache.users.length, locations:cache.locations.length, lastFetch:cache.lastFetch });
 });
 
-app.get("/api/usage", (req, res) => {
-  res.json({
-    contacts: cache.contacts.length,
-    opportunities: cache.opportunities.length,
-    conversations: cache.conversations.length,
-    users: cache.users.length,
-    locations: cache.locations.length,
-    lastFetch: cache.lastFetch
-  });
-});
+app.get("/api/notifications", function(req,res) { res.json({ notifications, unread:notifications.filter(function(n){return !n.read;}).length }); });
+app.post("/api/notifications/read", function(req,res) { notifications.forEach(function(n){n.read=true;}); res.json({ok:true}); });
+app.get("/debug", function(req,res) { res.json({ users:cache.users.length, contacts:cache.contacts.length, opps:cache.opportunities.length, convs:cache.conversations.length, locations:cache.locations.length, lastFetch:cache.lastFetch }); });
 
-app.get("/debug", (req, res) => {
-  res.json({ users: cache.users.length, contacts: cache.contacts.length, opps: cache.opportunities.length, convs: cache.conversations.length, locations: cache.locations.length, lastFetch: cache.lastFetch });
-});
-
-// ── MAIN DASHBOARD ────────────────────────────────────────
-app.get("/", (req, res) => {
-  res.send(`<!DOCTYPE html>
+// ── HTML ─────────────────────────────────────────
+app.get("/", function(req,res) {
+res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -165,511 +154,371 @@ app.get("/", (req, res) => {
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
-:root{
-  --bg:#f4f6fb;
-  --surface:#ffffff;
-  --surface2:#f0f2f8;
-  --border:#e2e6f0;
-  --accent:#6c63ff;
-  --accent2:#00c49a;
-  --accent3:#ff6b6b;
-  --accent4:#ffd166;
-  --text:#1a1d2e;
-  --muted:#8a92a6;
-  --green:#00c49a;
-  --red:#ff6b6b;
-  --yellow:#f59e0b;
-  --blue:#3b82f6;
-}
+:root{--bg:#f4f6fb;--surface:#fff;--surface2:#f0f2f8;--border:#e2e6f0;--accent:#6c63ff;--green:#00c49a;--red:#ef4444;--yellow:#f59e0b;--blue:#3b82f6;--purple:#8b5cf6;--text:#1a1d2e;--muted:#8a92a6;--sh:0 1px 4px rgba(0,0,0,.06)}
+[data-theme="dark"]{--bg:#0a0c10;--surface:#13161d;--surface2:#1a1e28;--border:#252a38;--text:#e8eaf0;--muted:#6b7280;--sh:0 1px 4px rgba(0,0,0,.3)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-/* HEADER */
-.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;height:56px;gap:24px;position:sticky;top:0;z-index:100;box-shadow:0 1px 4px rgba(0,0,0,.06)}
-.logo{font-weight:700;font-size:16px;color:#fff;letter-spacing:-.3px}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 18px;display:flex;align-items:center;height:52px;gap:14px;position:sticky;top:0;z-index:200;box-shadow:var(--sh)}
+.logo{font-weight:800;font-size:16px;letter-spacing:-.5px;flex-shrink:0}
 .logo span{color:var(--accent)}
-.nav{display:flex;gap:2px;flex:1}
-.nav-btn{padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;transition:.15s}
-.nav-btn:hover{color:var(--text);background:var(--surface2)}
-.nav-btn.active{color:var(--accent);background:rgba(108,99,255,.08);font-weight:600}
-.header-right{display:flex;align-items:center;gap:12px}
-.refresh-btn{padding:7px 14px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:12px;background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s}
-.refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
-.last-update{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
-/* LAYOUT */
-.page{display:none;padding:24px;max-width:1400px;margin:0 auto}
+.nav{display:flex;gap:2px;flex:1;overflow-x:auto}
+.nav::-webkit-scrollbar{display:none}
+.nbtn{padding:6px 12px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:500;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;white-space:nowrap;transition:.15s}
+.nbtn:hover{color:var(--text);background:var(--surface2)}
+.nbtn.active{color:var(--accent);background:rgba(108,99,255,.1);font-weight:600}
+.hdr-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.ibtn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;position:relative;transition:.15s}
+.ibtn:hover{border-color:var(--accent)}
+.ndot{position:absolute;top:4px;right:4px;width:7px;height:7px;background:var(--red);border-radius:50%;border:2px solid var(--surface);display:none}
+.lupd{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace}
+.page{display:none;padding:18px;max-width:1440px;margin:0 auto}
 .page.active{display:block}
-/* STAT CARDS */
-.stats-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden;transition:.2s;box-shadow:0 1px 4px rgba(0,0,0,.04)}
-.stat-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(108,99,255,.1)}
-.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
-.stat-card.green::before{background:linear-gradient(90deg,var(--green),transparent)}
-.stat-card.red::before{background:linear-gradient(90deg,var(--red),transparent)}
-.stat-card.yellow::before{background:linear-gradient(90deg,var(--yellow),transparent)}
-.stat-card.blue::before{background:linear-gradient(90deg,var(--blue),transparent)}
-.stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:500}
-.stat-num{font-size:28px;font-weight:700;color:var(--text);line-height:1}
-.stat-sub{font-size:11px;color:var(--muted);margin-top:4px}
-.stat-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;margin-top:6px}
-.stat-badge.up{background:rgba(0,212,170,.15);color:var(--green)}
-.stat-badge.down{background:rgba(255,107,107,.15);color:var(--red)}
-/* SECTION */
-.section-title{font-size:15px;font-weight:600;color:#fff;margin-bottom:14px;display:flex;align-items:center;gap:8px}
-.section-title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
-/* CHARTS ROW */
-.charts-row{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:24px}
-.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
-.chart-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px}
-.chart-sub{font-size:11px;color:var(--muted);margin-bottom:16px}
-.chart-wrap{position:relative;height:220px}
-/* HEALTH TABLE */
-.health-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
-.health-table-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-.health-tabs{display:flex;gap:4px}
-.health-tab{padding:5px 12px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:500;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif}
-.health-tab.active{background:rgba(108,99,255,.1);color:var(--accent);font-weight:600}
+.sg{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px}
+@media(max-width:900px){.sg{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:560px){.sg{grid-template-columns:repeat(2,1fr)}}
+.sc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;position:relative;overflow:hidden;box-shadow:var(--sh)}
+.sc::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:12px 12px 0 0}
+.sc.ca::after{background:var(--accent)}.sc.cg::after{background:var(--green)}.sc.cb::after{background:var(--blue)}.sc.cy::after{background:var(--yellow)}.sc.cp::after{background:var(--purple)}.sc.cr::after{background:var(--red)}
+.sl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;font-weight:600}
+.sn{font-size:24px;font-weight:700;color:var(--text);line-height:1}
+.ss{font-size:11px;color:var(--muted);margin-top:2px}
+.stitle{font-size:13px;font-weight:700;color:var(--text);margin-bottom:11px;display:flex;align-items:center;gap:7px}
+.stitle::before{content:'';width:3px;height:14px;background:var(--accent);border-radius:2px;display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--sh)}
+.ctitle{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+.csub{font-size:11px;color:var(--muted);margin-bottom:12px}
+.c2{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:18px}
+.c3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
+@media(max-width:768px){.c2,.c3{grid-template-columns:1fr}}
+.cw{position:relative;height:190px}
+/* HEALTH */
+.htabs{display:flex;border-bottom:2px solid var(--border);overflow-x:auto}
+.htabs::-webkit-scrollbar{display:none}
+.htab{padding:9px 14px;border:none;border-bottom:2px solid transparent;background:transparent;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:var(--muted);margin-bottom:-2px;white-space:nowrap;display:flex;align-items:center;gap:5px;transition:.15s}
+.htab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.hcnt{font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.htab.active .hcnt{background:rgba(108,99,255,.15);color:var(--accent)}
+.hctrl{display:flex;gap:7px;padding:11px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center}
+.hsrch{flex:1;min-width:150px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none}
+.hsrch:focus{border-color:var(--accent)}
+.hsel{padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none;cursor:pointer}
+.hb{padding:7px 12px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:12px;font-weight:500;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);transition:.15s}
+.hb.pri{background:var(--accent);color:#fff;border-color:var(--accent)}
 table{width:100%;border-collapse:collapse}
 thead tr{background:var(--surface2)}
-th{padding:10px 16px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);font-weight:600}
-td{padding:12px 16px;font-size:13px;border-bottom:1px solid var(--border);color:var(--text)}
+th{padding:8px 11px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap}
+td{padding:10px 11px;font-size:12px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--surface2)}
-/* BADGES */
-.hbadge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600}
-.hbadge.thriving{background:rgba(0,212,170,.12);color:var(--green)}
-.hbadge.healthy{background:rgba(96,165,250,.12);color:var(--blue)}
-.hbadge.steady{background:rgba(255,209,102,.12);color:var(--yellow)}
-.hbadge.atrisk{background:rgba(255,107,107,.12);color:var(--red)}
-/* PROGRESS BAR */
-.prog{background:var(--border);border-radius:999px;height:4px;width:80px;display:inline-block;vertical-align:middle;margin-left:6px}
-.prog-fill{height:4px;border-radius:999px;background:var(--accent)}
-/* STAFF CARDS */
-.staff-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px}
-.staff-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;transition:.2s;box-shadow:0 1px 4px rgba(0,0,0,.04)}
-.staff-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(108,99,255,.1)}
-.staff-card.active-today{border-color:rgba(0,196,154,.4);box-shadow:0 2px 12px rgba(0,196,154,.08)}
-.staff-avatar{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;margin-bottom:10px}
-.staff-name{font-weight:600;font-size:13px;color:var(--text);margin-bottom:2px}
-.staff-email{font-size:11px;color:var(--muted);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.staff-metrics{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.staff-metric{background:var(--surface2);border-radius:8px;padding:8px;text-align:center;border:1px solid var(--border)}
-.staff-metric-num{font-size:18px;font-weight:700;color:var(--text)}
-.staff-metric-label{font-size:10px;color:var(--muted);margin-top:2px}
-.staff-last{font-size:11px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
-/* STATUS DOT */
-.sdot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px}
-.sdot.online{background:var(--green);box-shadow:0 0 6px var(--green)}
-.sdot.today{background:var(--yellow)}
-.sdot.offline{background:var(--red)}
-/* USAGE GRID */
-.usage-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
-.usage-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;display:flex;align-items:center;gap:16px;box-shadow:0 1px 4px rgba(0,0,0,.04);transition:.2s}
-.usage-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.08);transform:translateY(-1px)}
-.usage-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
-.usage-num{font-size:26px;font-weight:700;color:var(--text)}
-.usage-label{font-size:12px;color:var(--muted);margin-top:2px}
-/* LOADING */
-.loading{text-align:center;padding:48px;color:var(--muted);font-size:14px}
-.pulse{animation:pulse 1.5s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-/* ALERT */
-.alert-row{background:rgba(255,107,107,.07);border:1px solid rgba(255,107,107,.25);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#cc3333}
-/* HEALTH PAGE STYLES */
-.health-topbar{margin-bottom:16px}
-.htabs{display:flex;gap:2px;border-bottom:2px solid var(--border);padding-bottom:0}
-.htab{padding:8px 16px;border:none;border-bottom:2px solid transparent;background:transparent;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:var(--muted);margin-bottom:-2px;transition:.15s;display:flex;align-items:center;gap:7px}
-.htab:hover{color:var(--text)}
-.htab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
-.htab-count{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--surface2);color:var(--muted)}
-.htab.active .htab-count{background:rgba(108,99,255,.12);color:var(--accent)}
-.health-controls{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
-.h-search{flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none}
-.h-search:focus{border-color:var(--accent)}
-.h-select{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none;cursor:pointer}
-.h-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:13px;font-weight:500;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);transition:.15s}
-.h-btn:hover{border-color:var(--accent);color:var(--accent)}
-.h-btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
-.h-btn-primary:hover{background:#5a52d5;color:#fff}
-.h-pagination{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border)}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700}
+.badge.thriving{background:rgba(0,196,154,.12);color:var(--green)}
+.badge.healthy{background:rgba(59,130,246,.12);color:var(--blue)}
+.badge.steady{background:rgba(245,158,11,.12);color:var(--yellow)}
+.badge.atrisk{background:rgba(239,68,68,.12);color:var(--red)}
+.pb{display:inline-flex;align-items:center;gap:5px}
+.pbl{font-size:11px;font-weight:500;min-width:30px}
+.pbbar{width:70px;height:4px;background:var(--border);border-radius:999px;overflow:hidden}
+.pbfill{height:4px;border-radius:999px;background:var(--accent)}
+/* STAFF */
+.sfgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:18px}
+.sfc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px;box-shadow:var(--sh);transition:.15s}
+.sfc:hover{border-color:var(--accent)}
+.sfc.act{border-color:rgba(0,196,154,.35)}
+.sfav{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#a78bfa);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;margin-bottom:7px}
+.sfn{font-weight:600;font-size:12px;color:var(--text)}
+.sfe{font-size:10px;color:var(--muted);margin-bottom:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sfm{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.sm{background:var(--surface2);border-radius:6px;padding:6px;text-align:center;border:1px solid var(--border)}
+.smn{font-size:16px;font-weight:700;color:var(--text)}
+.sml{font-size:9px;color:var(--muted)}
+.sfl{font-size:10px;color:var(--muted);margin-top:7px;padding-top:6px;border-top:1px solid var(--border)}
+/* LEADERBOARD */
+.lbr{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border)}
+.lbr:last-child{border-bottom:none}
+.lbrk{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.lbrk.g{background:#fef3c7;color:#b45309}.lbrk.s{background:#f1f5f9;color:#64748b}.lbrk.b{background:#fef0e7;color:#c2410c}.lbrk.o{background:var(--surface2);color:var(--muted)}
+.lbbar{flex:1;height:5px;background:var(--border);border-radius:999px;overflow:hidden}
+.lbfill{height:5px;border-radius:999px}
+/* MODAL */
+.movl{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;align-items:center;justify-content:center}
+.movl.open{display:flex}
+.mo{background:var(--surface);border-radius:16px;padding:22px;width:90%;max-width:520px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.mohd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
+.mocl{border:none;background:none;font-size:18px;cursor:pointer;color:var(--muted)}
+/* NOTIF */
+.npnl{display:none;position:fixed;top:56px;right:14px;width:300px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:300;overflow:hidden}
+.npnl.open{display:block}
+.nph{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600}
+.npi{padding:9px 14px;border-bottom:1px solid var(--border);font-size:11px;display:flex;gap:8px;align-items:flex-start}
+.npi.unread{background:rgba(108,99,255,.04)}
+.npt{font-size:10px;color:var(--muted);margin-top:2px}
+/* USAGE */
+.ugrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
+@media(max-width:600px){.ugrid{grid-template-columns:1fr 1fr}}
+.uc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;align-items:center;gap:10px;box-shadow:var(--sh)}
+.uico{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.un{font-size:20px;font-weight:700;color:var(--text)}
+.ul{font-size:11px;color:var(--muted)}
+/* MRR */
+.mrrb{font-size:28px;font-weight:800;color:var(--green)}
+.mrrt{font-size:11px;padding:2px 7px;border-radius:999px;background:rgba(0,196,154,.12);color:var(--green);font-weight:600;display:inline-block;margin-top:3px}
+.csms{padding:3px 7px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;cursor:pointer;outline:none}
+.ab{width:24px;height:24px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:11px;display:inline-flex;align-items:center;justify-content:center;transition:.15s}
+.ab:hover{border-color:var(--accent)}
+.alrt{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#b91c1c}
+.sdot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
+.sdot.on{background:var(--green)}.sdot.td{background:var(--yellow)}.sdot.off{background:var(--red)}
+.loading{text-align:center;padding:36px;color:var(--muted);font-size:12px}
+.pulse{animation:pulse 1.4s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 </style>
 </head>
 <body>
 
+<div class="npnl" id="npnl">
+  <div class="nph"><span>🔔 Notifications</span><button onclick="markRead()" style="border:none;background:none;font-size:11px;color:var(--accent);cursor:pointer;font-family:'DM Sans',sans-serif">Mark all read</button></div>
+  <div id="nlist"><div class="loading" style="padding:18px">Loading...</div></div>
+</div>
+
+<div class="movl" id="movl" onclick="closeMo(event)">
+  <div class="mo">
+    <div class="mohd">
+      <div><div style="font-size:15px;font-weight:700" id="mo-title">Account</div><div style="font-size:11px;color:var(--muted)" id="mo-email"></div></div>
+      <button class="mocl" onclick="closeMoDirect()">✕</button>
+    </div>
+    <div id="mo-body"></div>
+  </div>
+</div>
+
 <div class="header">
   <div class="logo">MAY<span>BEL</span></div>
   <nav class="nav">
-    <button class="nav-btn active" onclick="showPage('dashboard')">📊 Dashboard</button>
-    <button class="nav-btn" onclick="showPage('health')">❤️ Health</button>
-    <button class="nav-btn" onclick="showPage('staff')">👥 Staff</button>
-    <button class="nav-btn" onclick="showPage('usage')">📈 Usage</button>
+    <button class="nbtn active" onclick="showPage('dashboard')">📊 Dashboard</button>
+    <button class="nbtn" onclick="showPage('health')">❤️ Health</button>
+    <button class="nbtn" onclick="showPage('analytics')">📈 Analytics</button>
+    <button class="nbtn" onclick="showPage('staff')">👥 Staff</button>
+    <button class="nbtn" onclick="showPage('usage')">⚡ Usage</button>
   </nav>
-  <div class="header-right">
-    <span class="last-update" id="last-update">Loading...</span>
-    <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+  <div class="hdr-right">
+    <span class="lupd" id="lupd">—</span>
+    <button class="ibtn" onclick="toggleNotif()">🔔<span class="ndot" id="ndot"></span></button>
+    <button class="ibtn" onclick="toggleTheme()" id="tbtn">🌙</button>
+    <button class="ibtn" onclick="loadAll()">↻</button>
   </div>
 </div>
 
-<!-- DASHBOARD PAGE -->
 <div class="page active" id="page-dashboard">
-  <div class="stats-grid" id="stats-grid">
-    <div class="stat-card"><div class="stat-label">Total Users</div><div class="stat-num" id="st-users">—</div></div>
-    <div class="stat-card blue"><div class="stat-label">Sub-Accounts</div><div class="stat-num" id="st-subs">—</div></div>
-    <div class="stat-card green"><div class="stat-label">Contacts</div><div class="stat-num" id="st-contacts">—</div><div class="stat-sub" id="st-contacts-today"></div></div>
-    <div class="stat-card yellow"><div class="stat-label">Opportunities</div><div class="stat-num" id="st-opps">—</div><div class="stat-sub" id="st-opps-won"></div></div>
-    <div class="stat-card"><div class="stat-label">Conversations</div><div class="stat-num" id="st-convs">—</div><div class="stat-sub" id="st-convs-today"></div></div>
-    <div class="stat-card green"><div class="stat-label">Won Deals</div><div class="stat-num" id="st-won">—</div></div>
+  <div class="sg">
+    <div class="sc ca"><div class="sl">Total Users</div><div class="sn" id="s-users">—</div></div>
+    <div class="sc cb"><div class="sl">Sub-Accounts</div><div class="sn" id="s-subs">—</div></div>
+    <div class="sc cg"><div class="sl">Contacts</div><div class="sn" id="s-contacts">—</div><div class="ss" id="s-ctd"></div></div>
+    <div class="sc cy"><div class="sl">Opportunities</div><div class="sn" id="s-opps">—</div><div class="ss" id="s-won-s"></div></div>
+    <div class="sc cp"><div class="sl">Conversations</div><div class="sn" id="s-convs">—</div><div class="ss" id="s-cvtd"></div></div>
+    <div class="sc cr"><div class="sl">Won Deals</div><div class="sn" id="s-won">—</div></div>
   </div>
-  <div class="charts-row">
-    <div class="chart-card">
-      <div class="chart-title">Contact Growth</div>
-      <div class="chart-sub">Monthly contacts added</div>
-      <div class="chart-wrap"><canvas id="chart-contacts"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-title">Pipeline Status</div>
-      <div class="chart-sub">Opportunity breakdown</div>
-      <div class="chart-wrap"><canvas id="chart-pipeline"></canvas></div>
-    </div>
+  <div class="c2">
+    <div class="card"><div class="ctitle">Contact Growth</div><div class="csub">Monthly contacts added</div><div class="cw"><canvas id="ch-contacts"></canvas></div></div>
+    <div class="card"><div class="ctitle">Pipeline Status</div><div class="csub">Opportunity breakdown</div><div class="cw"><canvas id="ch-pipeline"></canvas></div></div>
   </div>
-  <div class="section-title"><span class="dot"></span>Recent Activity</div>
-  <div id="recent-activity" class="loading pulse">Loading...</div>
+  <div class="stitle">Recent Activity</div>
+  <div id="recent" class="loading pulse">Loading...</div>
 </div>
 
-<!-- HEALTH PAGE -->
 <div class="page" id="page-health">
-  <div class="health-topbar">
-    <div class="htabs" id="htabs">
-      <button class="htab active" onclick="setHealthFilter('all',this)">All <span class="htab-count" id="hc-all">0</span></button>
-      <button class="htab" onclick="setHealthFilter('saas',this)">SaaS <span class="htab-count" id="hc-saas">0/0</span></button>
-      <button class="htab" onclick="setHealthFilter('nonsaas',this)">Non-SaaS <span class="htab-count" id="hc-nonsaas">0/0</span></button>
-      <button class="htab" onclick="setHealthFilter('priority',this)">Priority <span class="htab-count" id="hc-priority">0/0</span></button>
-      <button class="htab" onclick="setHealthFilter('churned',this)">Churned <span class="htab-count" id="hc-churned">0</span></button>
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="htabs">
+      <button class="htab active" onclick="setHF('all',this)">All <span class="hcnt" id="hc-all">0</span></button>
+      <button class="htab" onclick="setHF('saas',this)">SaaS <span class="hcnt" id="hc-saas">0</span></button>
+      <button class="htab" onclick="setHF('nonsaas',this)">Non-SaaS <span class="hcnt" id="hc-ns">0</span></button>
+      <button class="htab" onclick="setHF('priority',this)">Priority <span class="hcnt" id="hc-pr">0</span></button>
+      <button class="htab" onclick="setHF('churned',this)">Churned <span class="hcnt" id="hc-ch">0</span></button>
     </div>
-  </div>
-  <div class="health-table-wrap">
-    <div class="health-controls">
-      <input class="h-search" id="h-search" placeholder="🔍 Search Sub-Account" oninput="applyHealthFilters()"/>
-      <select class="h-select" id="h-status-filter" onchange="applyHealthFilters()">
-        <option value="">All Health Status</option>
-        <option value="Thriving">Thriving</option>
-        <option value="Healthy">Healthy</option>
-        <option value="Steady">Steady</option>
-        <option value="At-risk">At-risk</option>
-      </select>
-      <button class="h-btn h-btn-primary" onclick="exportCSV()">Export CSV</button>
+    <div class="hctrl">
+      <input class="hsrch" id="h-srch" placeholder="🔍 Search sub-account..." oninput="applyHF()"/>
+      <select class="hsel" id="h-stat" onchange="applyHF()"><option value="">All Health</option><option>Thriving</option><option>Healthy</option><option>Steady</option><option>At-risk</option></select>
+      <button class="hb pri" onclick="exportCSV()">⬇ Export CSV</button>
     </div>
-    <div id="health-table"><div class="loading pulse">Loading...</div></div>
-    <div class="h-pagination">
-      <span id="h-showing" style="font-size:12px;color:var(--muted)"></span>
-    </div>
+    <div id="htable"><div class="loading pulse">Loading...</div></div>
   </div>
 </div>
 
-<!-- STAFF PAGE -->
+<div class="page" id="page-analytics">
+  <div class="c3">
+    <div class="card"><div class="ctitle">💰 MRR</div><div class="csub">Monthly Recurring Revenue</div><div id="mrr-d" class="loading pulse">—</div></div>
+    <div class="card"><div class="ctitle">📉 Churn Rate</div><div class="csub">Monthly churn %</div><div id="churn-d" class="loading pulse">—</div></div>
+    <div class="card"><div class="ctitle">👥 Cohorts</div><div class="csub">Contacts by join month</div><div id="cohort-d" class="loading pulse">—</div></div>
+  </div>
+  <div class="c2">
+    <div class="card"><div class="ctitle">Login Activity</div><div class="csub">Monthly new contacts (login proxy)</div><div class="cw"><canvas id="ch-login"></canvas></div></div>
+    <div class="card"><div class="ctitle">MRR Trend</div><div class="csub">Estimated revenue per month</div><div class="cw"><canvas id="ch-mrr"></canvas></div></div>
+  </div>
+  <div class="stitle">Churn Trend</div>
+  <div class="card"><div class="cw"><canvas id="ch-churn"></canvas></div></div>
+</div>
+
 <div class="page" id="page-staff">
-  <div class="section-title"><span class="dot"></span>Staff Activity</div>
-  <div id="staff-alert" style="display:none" class="alert-row"></div>
-  <div id="staff-grid" class="staff-grid loading pulse">Loading...</div>
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:18px">
+    <div>
+      <div class="stitle">Staff Activity</div>
+      <div id="staff-alert" style="display:none" class="alrt"></div>
+      <div id="sfgrid" class="sfgrid"><div class="loading pulse">Loading...</div></div>
+    </div>
+    <div>
+      <div class="stitle">🏆 Leaderboard</div>
+      <div class="card" style="padding:0;overflow:hidden" id="lboard"><div class="loading pulse" style="padding:24px">Loading...</div></div>
+    </div>
+  </div>
+  <div class="stitle">Staff Workload</div>
+  <div class="card"><div class="csub">Contacts per team member</div><div class="cw" style="height:170px"><canvas id="ch-wl"></canvas></div></div>
 </div>
 
-<!-- USAGE PAGE -->
 <div class="page" id="page-usage">
-  <div class="section-title"><span class="dot"></span>Total Usage Reports</div>
-  <div class="usage-grid" id="usage-grid">
-    <div class="loading pulse">Loading...</div>
-  </div>
-  <div class="charts-row">
-    <div class="chart-card">
-      <div class="chart-title">Product Adoption</div>
-      <div class="chart-sub">Features used across accounts</div>
-      <div class="chart-wrap"><canvas id="chart-adoption"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-title">Staff Performance</div>
-      <div class="chart-sub">Contacts per team member</div>
-      <div class="chart-wrap"><canvas id="chart-staff-perf"></canvas></div>
-    </div>
+  <div class="stitle">Total Usage Reports</div>
+  <div id="ugrid" class="ugrid"><div class="loading pulse">Loading...</div></div>
+  <div class="c2">
+    <div class="card"><div class="ctitle">Product Adoption</div><div class="csub">Features used across accounts</div><div class="cw"><canvas id="ch-adopt"></canvas></div></div>
+    <div class="card"><div class="ctitle">Staff Performance Score</div><div class="csub">Score per team member</div><div class="cw"><canvas id="ch-perf"></canvas></div></div>
   </div>
 </div>
 
 <script>
-var healthData = [];
-var chartInstances = {};
-
+var hData=[],sfData=[],anaData={},chts={},hFilter='all',isDark=false,sfList=[];
 function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function initials(n){if(!n)return'?';var p=n.trim().split(' ');return(p[0][0]+(p[1]?p[1][0]:'')).toUpperCase();}
-function timeSince(d){
-  if(!d)return'Never';
-  var mins=Math.floor((new Date()-new Date(d))/60000);
-  if(mins<1)return'Just now';if(mins<60)return mins+'m ago';
-  var h=Math.floor(mins/60);if(h<24)return h+'h ago';
-  return Math.floor(h/24)+'d ago';
-}
-function isToday(d){if(!d)return false;var dt=new Date(d),n=new Date();return dt.getFullYear()===n.getFullYear()&&dt.getMonth()===n.getMonth()&&dt.getDate()===n.getDate();}
-function sdot(d){
-  if(!d)return'<span class="sdot offline"></span>';
-  var m=Math.floor((new Date()-new Date(d))/60000);
-  if(m<120)return'<span class="sdot online"></span>';
-  if(isToday(d))return'<span class="sdot today"></span>';
-  return'<span class="sdot offline"></span>';
-}
-function healthBadge(h){
-  var map={Thriving:'thriving',Healthy:'healthy',Steady:'steady','At-risk':'atrisk'};
-  var icons={Thriving:'🟢',Healthy:'🔵',Steady:'🟡','At-risk':'🔴'};
-  return'<span class="hbadge '+(map[h]||'atrisk')+'">'+(icons[h]||'🔴')+' '+esc(h)+'</span>';
-}
-function progBar(val){
-  var parts=val.split('/');
-  var pct=parts[1]>0?Math.round((parts[0]/parts[1])*100):0;
-  return esc(val)+'<span class="prog"><span class="prog-fill" style="width:'+pct+'%"></span></span>';
-}
+function init(n){if(!n)return'?';var p=n.trim().split(' ');return(p[0][0]+(p[1]?p[1][0]:'')).toUpperCase();}
+function ts(d){if(!d)return'Never';var m=Math.floor((new Date()-new Date(d))/60000);if(m<1)return'Just now';if(m<60)return m+'m ago';var h=Math.floor(m/60);if(h<24)return h+'h ago';return Math.floor(h/24)+'d ago';}
+function isTd(d){if(!d)return false;var t=new Date(d),n=new Date();return t.getFullYear()===n.getFullYear()&&t.getMonth()===n.getMonth()&&t.getDate()===n.getDate();}
+function sdot(d){if(!d)return'<span class="sdot off"></span>';var m=Math.floor((new Date()-new Date(d))/60000);if(m<120)return'<span class="sdot on"></span>';if(isTd(d))return'<span class="sdot td"></span>';return'<span class="sdot off"></span>';}
+function hbadge(h){var m={Thriving:'thriving',Healthy:'healthy',Steady:'steady','At-risk':'atrisk'};var i={Thriving:'🟢',Healthy:'🔵',Steady:'🟡','At-risk':'🔴'};return'<span class="badge '+(m[h]||'atrisk')+'">'+(i[h]||'🔴')+' '+esc(h)+'</span>';}
+function pb(s,mx){var p=mx>0?Math.round(s/mx*100):0;return'<div class="pb"><span class="pbl">'+s+'/'+mx+'</span><div class="pbbar"><div class="pbfill" style="width:'+p+'%"></div></div></div>';}
+function fm(n){return '$'+n.toLocaleString();}
+function gc(id,type,data,opts){if(chts[id]){chts[id].destroy();delete chts[id];}var ctx=document.getElementById(id);if(!ctx)return;var gridC=isDark?'rgba(255,255,255,.06)':'rgba(0,0,0,.05)';chts[id]=new Chart(ctx.getContext('2d'),{type,data,options:Object.assign({responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:isDark?'#6b7280':'#8a92a6',font:{size:10}}},y:{grid:{color:gridC},ticks:{color:isDark?'#6b7280':'#8a92a6',font:{size:10}}}}},opts||{})});}
 
 function showPage(p){
-  document.querySelectorAll('.page').forEach(function(el){el.classList.remove('active');});
-  document.querySelectorAll('.nav-btn').forEach(function(b,i){b.classList.toggle('active',['dashboard','health','staff','usage'][i]===p);});
+  document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active');});
+  document.querySelectorAll('.nbtn').forEach(function(b,i){b.classList.toggle('active',['dashboard','health','analytics','staff','usage'][i]===p);});
   document.getElementById('page-'+p).classList.add('active');
-  if(p==='usage') buildAdoptionChart();
+  if(p==='analytics'&&!anaData.loginActivity) loadAnalytics();
+  if(p==='usage') buildAdopt();
 }
-
-function destroyChart(id){if(chartInstances[id]){chartInstances[id].destroy();delete chartInstances[id];}}
-
-async function loadAll(){
-  await Promise.all([loadSummary(), loadHealth(), loadStaff(), loadUsage()]);
-}
+function toggleTheme(){isDark=!isDark;document.documentElement.dataset.theme=isDark?'dark':'';document.getElementById('tbtn').textContent=isDark?'☀️':'🌙';setTimeout(function(){Object.keys(chts).forEach(function(id){chts[id].destroy();delete chts[id];});loadSummary();if(anaData.loginActivity)loadAnalytics();loadUsage();if(sfList.length)buildWL();},250);}
+function toggleNotif(){var p=document.getElementById('npnl');p.classList.toggle('open');if(p.classList.contains('open'))loadNotifs();}
+function loadNotifs(){fetch('/api/notifications').then(function(r){return r.json();}).then(function(d){document.getElementById('ndot').style.display=d.unread>0?'block':'none';var h=d.notifications.map(function(n){var ic=n.type==='contact'?'👤':n.type==='warning'?'⚠️':'ℹ️';return'<div class="npi'+(n.read?'':' unread')+'"><span>'+ic+'</span><div><div>'+esc(n.msg)+'</div><div class="npt">'+ts(n.time)+'</div></div></div>';}).join('');document.getElementById('nlist').innerHTML=h||'<div class="loading">No notifications</div>';});}
+function markRead(){fetch('/api/notifications/read',{method:'POST'}).then(function(){loadNotifs();document.getElementById('ndot').style.display='none';});}
+document.addEventListener('click',function(e){var p=document.getElementById('npnl');if(p.classList.contains('open')&&!p.contains(e.target)&&!e.target.closest('.ibtn'))p.classList.remove('open');});
 
 async function loadSummary(){
   try{
-    var r=await fetch('/api/summary');var d=await r.json();
-    document.getElementById('st-users').textContent=d.users||0;
-    document.getElementById('st-subs').textContent=d.subAccounts||0;
-    document.getElementById('st-contacts').textContent=d.contacts||0;
-    document.getElementById('st-contacts-today').textContent='+'+d.contactsToday+' today';
-    document.getElementById('st-opps').textContent=d.opportunities||0;
-    document.getElementById('st-opps-won').textContent=d.oppsWon+' won';
-    document.getElementById('st-convs').textContent=d.conversations||0;
-    document.getElementById('st-convs-today').textContent='+'+d.convToday+' today';
-    document.getElementById('st-won').textContent=d.oppsWon||0;
-    if(d.lastFetch) document.getElementById('last-update').textContent='Updated '+timeSince(d.lastFetch);
-
-    // Pipeline donut chart
-    destroyChart('pipeline');
-    var ctx=document.getElementById('chart-pipeline').getContext('2d');
-    chartInstances['pipeline']=new Chart(ctx,{type:'doughnut',data:{labels:['Won','Open','Other'],datasets:[{data:[d.oppsWon,d.oppsOpen,Math.max(0,d.opportunities-d.oppsWon-d.oppsOpen)],backgroundColor:['#00c49a','#6c63ff','#e2e6f0'],borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#8a92a6',font:{size:11},padding:12}}},cutout:'65%'}});
-
-    // Contacts bar chart (simulated monthly)
-    destroyChart('contacts');
-    var ctx2=document.getElementById('chart-contacts').getContext('2d');
-    var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var d=await fetch('/api/summary').then(function(r){return r.json();});
+    var el=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v;};
+    el('s-users',d.users||0);el('s-subs',d.subAccounts||0);el('s-contacts',d.contacts||0);el('s-ctd','+'+(d.contactsToday||0)+' today');el('s-opps',d.opportunities||0);el('s-won-s',(d.oppsWon||0)+' won');el('s-convs',d.conversations||0);el('s-cvtd','+'+(d.convToday||0)+' today');el('s-won',d.oppsWon||0);
+    if(d.lastFetch)document.getElementById('lupd').textContent='Updated '+ts(d.lastFetch);
     var now=new Date().getMonth();
-    var labels=months.slice(0,now+1);
-    var base=Math.floor(d.contacts/Math.max(now+1,1));
-    var vals=labels.map(function(_,i){return Math.round(base*(0.6+i*0.08)+(Math.random()*base*0.2));});
-    chartInstances['contacts']=new Chart(ctx2,{type:'bar',data:{labels:labels,datasets:[{label:'Contacts',data:vals,backgroundColor:'rgba(108,99,255,0.75)',borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#8a92a6',font:{size:11}}},y:{grid:{color:'rgba(226,230,240,.8)'},ticks:{color:'#8a92a6',font:{size:11}}}}}});
-
-    // Recent activity
-    document.getElementById('recent-activity').innerHTML='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'+
-      ['Contacts today','Open opportunities','Conversations today'].map(function(label,i){
-        var val=[d.contactsToday,d.oppsOpen,d.convToday][i];
-        var color=['var(--green)','var(--accent)','var(--blue)'][i];
-        var bg=['rgba(0,196,154,.06)','rgba(108,99,255,.06)','rgba(59,130,246,.06)'][i];
-        return'<div style="background:'+bg+';border:1px solid var(--border);border-radius:12px;padding:20px"><div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">'+label+'</div><div style="font-size:36px;font-weight:700;color:'+color+'">'+val+'</div></div>';
-      }).join('')+'</div>';
+    var labs=(d.monthlyContacts||[]).slice(0,now+1).map(function(m){return m.month;});
+    var vals=(d.monthlyContacts||[]).slice(0,now+1).map(function(m){return m.count;});
+    gc('ch-contacts','bar',{labels:labs,datasets:[{data:vals,backgroundColor:'rgba(108,99,255,.75)',borderRadius:6,borderSkipped:false}]});
+    gc('ch-pipeline','doughnut',{labels:['Won','Open','Other'],datasets:[{data:[d.oppsWon,d.oppsOpen,Math.max(0,(d.opportunities||0)-d.oppsWon-d.oppsOpen)],backgroundColor:['#00c49a','#6c63ff',isDark?'#252a38':'#e2e6f0'],borderWidth:0,hoverOffset:4}]},{plugins:{legend:{display:true,position:'bottom',labels:{color:isDark?'#6b7280':'#8a92a6',font:{size:11},padding:8}}},cutout:'65%',scales:{}});
+    document.getElementById('recent').innerHTML='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">'+[['Contacts today',d.contactsToday,'var(--green)','rgba(0,196,154,.06)'],['Open opportunities',d.oppsOpen,'var(--accent)','rgba(108,99,255,.06)'],['Conversations today',d.convToday,'var(--blue)','rgba(59,130,246,.06)']].map(function(x){return'<div style="background:'+x[3]+';border:1px solid var(--border);border-radius:12px;padding:14px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">'+x[0]+'</div><div style="font-size:30px;font-weight:700;color:'+x[2]+'">'+x[1]+'</div></div>';}).join('')+'</div>';
   }catch(e){console.error(e);}
 }
 
 async function loadHealth(){
   try{
-    var r=await fetch('/api/health');var d=await r.json();
-    healthData=d.accounts||[];
-    updateHealthCounts();
-    renderHealthTable(healthData);
-  }catch(e){console.error('loadHealth error',e);}
+    var d=await fetch('/api/health').then(function(r){return r.json();});
+    hData=d.accounts||[];
+    var el=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v;};
+    el('hc-all',hData.length);el('hc-saas',hData.filter(function(a){return a.isSaaS;}).length);el('hc-ns',hData.filter(function(a){return !a.isSaaS;}).length);el('hc-pr',hData.filter(function(a){return a.isPriority;}).length);el('hc-ch',hData.filter(function(a){return a.isChurned;}).length);
+    applyHF();
+  }catch(e){console.error(e);}
 }
-
-var healthFilter = 'all';
-var healthSearch = '';
-var healthStatusFilter = '';
-
-function setHealthFilter(f, btn){
-  healthFilter = f;
-  document.querySelectorAll('.htab').forEach(function(b){b.classList.remove('active');});
-  btn.classList.add('active');
-  applyHealthFilters();
-}
-
-function applyHealthFilters(){
-  healthSearch = (document.getElementById('h-search')||{value:''}).value.toLowerCase();
-  healthStatusFilter = (document.getElementById('h-status-filter')||{value:''}).value;
-  var filtered = healthData.filter(function(a){
-    if(healthFilter==='saas' && !a.isSaaS) return false;
-    if(healthFilter==='nonsaas' && a.isSaaS) return false;
-    if(healthFilter==='priority' && !a.isPriority) return false;
-    if(healthFilter==='churned' && !a.isChurned) return false;
-    if(healthSearch && !a.name.toLowerCase().includes(healthSearch) && !a.email.toLowerCase().includes(healthSearch)) return false;
-    if(healthStatusFilter && a.health !== healthStatusFilter) return false;
-    return true;
+function setHF(f,btn){hFilter=f;document.querySelectorAll('.htab').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');applyHF();}
+function applyHF(){
+  var srch=(document.getElementById('h-srch')||{value:''}).value.toLowerCase();
+  var stat=(document.getElementById('h-stat')||{value:''}).value;
+  var f=hData.filter(function(a){
+    if(hFilter==='saas'&&!a.isSaaS)return false;if(hFilter==='nonsaas'&&a.isSaaS)return false;if(hFilter==='priority'&&!a.isPriority)return false;if(hFilter==='churned'&&!a.isChurned)return false;
+    if(srch&&!a.name.toLowerCase().includes(srch)&&!a.email.toLowerCase().includes(srch))return false;
+    if(stat&&a.health!==stat)return false;return true;
   });
-  renderHealthTable(filtered);
+  renderHT(f);
 }
-
-function updateHealthCounts(){
-  var all = healthData.length;
-  var saas = healthData.filter(function(a){return a.isSaaS;}).length;
-  var nonsaas = healthData.filter(function(a){return !a.isSaaS;}).length;
-  var priority = healthData.filter(function(a){return a.isPriority;}).length;
-  var churned = healthData.filter(function(a){return a.isChurned;}).length;
-  var el = function(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; };
-  el('hc-all', all);
-  el('hc-saas', '0/'+saas);
-  el('hc-nonsaas', nonsaas+'/'+nonsaas);
-  el('hc-priority', priority+'/'+priority);
-  el('hc-churned', churned);
-}
-
-function progBarNew(score, max){
-  var pct = max > 0 ? Math.round((score/max)*100) : 0;
-  return '<span style="font-size:12px;font-weight:500;color:var(--text);margin-right:6px">'+score+'/'+max+'</span><span style="font-size:11px;color:var(--muted);margin-right:8px">'+score+'</span><span style="display:inline-block;width:90px;height:5px;background:var(--border);border-radius:999px;vertical-align:middle"><span style="display:block;width:'+pct+'%;height:5px;background:var(--accent);border-radius:999px"></span></span>';
-}
-
-function requestFeedback(id, name){
-  alert('Feedback request sent to: ' + name);
-}
-
-function exportCSV(){
-  var rows = [['Name','Email','Last Updated','Login Activity','Product Adoption','NPS','Health','Contacts']];
-  healthData.forEach(function(a){
-    rows.push([a.name, a.email, timeSince(a.lastUpdated||a.lastActivity), a.loginScore+'/'+a.loginMax, a.adoptionScore+'/'+a.adoptionMax, a.npsScore+'/'+a.npsMax, a.health, a.contacts]);
-  });
-  var csv = rows.map(function(r){return r.map(function(v){return '"'+String(v).replace(/"/g,'''')+'"';}).join(',');}).join('\n');
-  var a = document.createElement('a');
-  a.href = 'data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
-  a.download = 'health-report.csv';
-  a.click();
-}
-
-function renderHealthTable(data){
-  if(!data.length){document.getElementById('health-table').innerHTML='<div class="loading">No accounts found.</div>';return;}
-  var html='<table>';
-  html+='<thead><tr>';
-  html+='<th><input type="checkbox" style="margin-right:8px"/>Sub-Account Name</th>';
-  html+='<th>Last Updated</th>';
-  html+='<th>Login Activity</th>';
-  html+='<th>Product Adoption</th>';
-  html+='<th>Feedback (NPS)</th>';
-  html+='<th>Health Status</th>';
-  html+='<th>Actions</th>';
-  html+='<th>Status</th>';
-  html+='</tr></thead><tbody>';
+function renderHT(data){
+  if(!data.length){document.getElementById('htable').innerHTML='<div class="loading">No accounts found.</div>';return;}
+  var csmOpts=['','Amr','Nouran','Hadeer','Prixam','Hanaa','Ebrahim'].map(function(n){return'<option value="'+n+'">'+n+'</option>';}).join('');
+  var h='<div style="overflow-x:auto"><table><thead><tr><th><input type="checkbox"/></th><th>Sub-Account</th><th>Last Updated</th><th>Login Activity</th><th>Product Adoption</th><th>NPS</th><th>Health</th><th>CSM</th><th>Actions</th><th>Status</th></tr></thead><tbody>';
   data.forEach(function(a){
-    html+='<tr>';
-    html+='<td><input type="checkbox" style="margin-right:10px"/><strong style="color:var(--text)">'+esc(a.name)+'</strong></td>';
-    html+='<td style="color:var(--muted);font-size:12px">'+timeSince(a.lastUpdated||a.lastActivity)+'</td>';
-    html+='<td>'+progBarNew(a.loginScore,a.loginMax)+'</td>';
-    html+='<td>'+progBarNew(a.adoptionScore,a.adoptionMax)+'</td>';
-    html+='<td>'+progBarNew(a.npsScore,a.npsMax)+'</td>';
-    html+='<td>'+healthBadge(a.health)+'</td>';
-    html+='<td><div style="display:flex;gap:6px;align-items:center">';
-    html+='<button onclick="requestFeedback(''+a.id+'',''+esc(a.name)+'')" title="Request Feedback" style="width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:13px">📩</button>';
-    html+='<button title="Settings" style="width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:13px">⚙️</button>';
-    html+='<button title="View" style="width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:13px">👁️</button>';
-    html+='</div></td>';
-    html+='<td><span style="width:10px;height:10px;border-radius:50%;background:'+(a.isChurned?'var(--red)':a.health==="Thriving"?'var(--green)':'var(--yellow)')+';display:inline-block"></span></td>';
-    html+='</tr>';
+    h+='<tr><td><input type="checkbox"/></td>';
+    h+='<td><strong style="cursor:pointer;color:var(--accent)" onclick="openMo(\''+a.id+'\')">'+esc(a.name)+'</strong><div style="font-size:10px;color:var(--muted)">'+esc(a.email)+'</div></td>';
+    h+='<td style="font-size:11px;color:var(--muted)">'+ts(a.lastUpdated||a.lastActivity)+'</td>';
+    h+='<td>'+pb(a.loginScore,a.loginMax)+'</td><td>'+pb(a.adoptionScore,a.adoptionMax)+'</td><td>'+pb(a.npsScore,a.npsMax)+'</td>';
+    h+='<td>'+hbadge(a.health)+'</td>';
+    h+='<td><select class="csms" onchange="assignCSM(\''+a.id+'\',this.value)">'+csmOpts+'</select></td>';
+    h+='<td style="display:flex;gap:3px"><button class="ab" onclick="reqFB(\''+a.id+'\',\''+esc(a.name)+'\')" title="Request Feedback">📩</button><button class="ab" onclick="openMo(\''+a.id+'\')" title="View">👁️</button></td>';
+    h+='<td><span style="width:8px;height:8px;border-radius:50%;background:'+(a.isChurned?'var(--red)':a.health==="Thriving"?'var(--green)':'var(--yellow)')+';display:inline-block"></span></td></tr>';
   });
-  html+='</tbody></table>';
-  html+='<div style="padding:12px 16px;font-size:12px;color:var(--muted);border-top:1px solid var(--border)">Showing 1 to '+data.length+' of '+data.length+' entries</div>';
-  document.getElementById('health-table').innerHTML=html;
+  h+='</tbody></table></div><div style="padding:9px 12px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)">Showing '+data.length+' of '+hData.length+' entries</div>';
+  document.getElementById('htable').innerHTML=h;
+}
+function assignCSM(id,csm){fetch('/api/csm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accountId:id,csm})});}
+function reqFB(id,name){alert('✅ Feedback request sent to '+name);}
+function exportCSV(){var rows=[['Name','Email','Last Updated','Login','Adoption','NPS','Health','CSM','Contacts']];hData.forEach(function(a){rows.push([a.name,a.email,ts(a.lastUpdated||a.lastActivity),a.loginScore+'/'+a.loginMax,a.adoptionScore+'/'+a.adoptionMax,a.npsScore+'/'+a.npsMax,a.health,a.csm||'',a.contacts]);});var csv=rows.map(function(r){return r.map(function(v){return'"'+String(v).replace(/"/g,'')+'"';}).join(',');}).join('\\n');var a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='health-report.csv';a.click();}
+
+function openMo(id){var a=hData.find(function(x){return x.id===id;});if(!a)return;document.getElementById('mo-title').textContent=a.name;document.getElementById('mo-email').textContent=a.email;document.getElementById('mo-body').innerHTML='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">'+[['Contacts',a.contacts,'var(--green)'],['Opportunities',a.opportunities,'var(--accent)'],['Conversations',a.conversations,'var(--blue)']].map(function(x){return'<div style="background:var(--surface2);border-radius:9px;padding:11px;text-align:center"><div style="font-size:20px;font-weight:700;color:'+x[2]+'">'+x[1]+'</div><div style="font-size:10px;color:var(--muted);margin-top:2px">'+x[0]+'</div></div>';}).join('')+'</div><div style="display:flex;flex-direction:column;gap:8px">'+[['Health',hbadge(a.health)],['Login Activity',pb(a.loginScore,a.loginMax)],['Product Adoption',pb(a.adoptionScore,a.adoptionMax)],['NPS',pb(a.npsScore,a.npsMax)],['Last Activity',ts(a.lastActivity)],['Joined',a.joinDate?new Date(a.joinDate).toLocaleDateString():'—'],['CSM',a.csm||'Not assigned']].map(function(r){return'<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)"><span style="font-size:11px;color:var(--muted)">'+r[0]+'</span><span style="font-size:12px;font-weight:500">'+r[1]+'</span></div>';}).join('')+'</div>';document.getElementById('movl').classList.add('open');}
+function closeMo(e){if(e.target===document.getElementById('movl'))closeMoDirect();}
+function closeMoDirect(){document.getElementById('movl').classList.remove('open');}
+
+async function loadAnalytics(){
+  try{
+    var d=await fetch('/api/analytics').then(function(r){return r.json();});
+    anaData=d;
+    var mrr=d.mrrData||[];var lastMRR=mrr[mrr.length-1]?.mrr||0;var prevMRR=mrr[mrr.length-2]?.mrr||0;var trend=prevMRR>0?Math.round((lastMRR-prevMRR)/prevMRR*100):0;
+    document.getElementById('mrr-d').innerHTML='<div class="mrrb">'+fm(lastMRR)+'</div><div class="mrrt">'+(trend>=0?'↑':'↓')+Math.abs(trend)+'% vs last month</div>';
+    var churn=d.churnData||[];var lc=churn[churn.length-1]?.churn||0;
+    document.getElementById('churn-d').innerHTML='<div class="mrrb" style="color:var('+(lc>3?'--red':'--green')+')">'+lc+'%</div><div style="font-size:11px;color:var(--muted);margin-top:4px">This month</div>';
+    var co=d.cohortList||[];
+    document.getElementById('cohort-d').innerHTML='<table style="width:100%"><thead><tr><th style="padding:4px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Period</th><th style="padding:4px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Contacts</th></tr></thead><tbody>'+co.map(function(c){return'<tr><td style="padding:4px 8px;font-size:11px">'+esc(c.period)+'</td><td style="padding:4px 8px;font-size:12px;font-weight:600">'+c.count+'</td></tr>';}).join('')+'</tbody></table>';
+    var labs=d.loginActivity.map(function(m){return m.month;});
+    gc('ch-login','bar',{labels:labs,datasets:[{data:d.loginActivity.map(function(m){return m.logins;}),backgroundColor:'rgba(59,130,246,.75)',borderRadius:6,borderSkipped:false}]});
+    gc('ch-mrr','line',{labels:labs,datasets:[{data:d.mrrData.map(function(m){return m.mrr;}),borderColor:'#00c49a',backgroundColor:'rgba(0,196,154,.1)',fill:true,tension:.4,pointRadius:3,pointBackgroundColor:'#00c49a'}]});
+    gc('ch-churn','line',{labels:labs,datasets:[{data:d.churnData.map(function(m){return m.churn;}),borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,.1)',fill:true,tension:.4,pointRadius:3,pointBackgroundColor:'#ef4444'}]});
+  }catch(e){console.error(e);}
 }
 
 async function loadStaff(){
   try{
-    var r=await fetch('/api/staff');var d=await r.json();
-    var staff=d.staff||[];
-    var noActivity=staff.filter(function(s){return !isToday(s.lastActivity);});
-    var alertDiv=document.getElementById('staff-alert');
-    if(noActivity.length>0){
-      alertDiv.style.display='block';
-      alertDiv.innerHTML='⚠️ No activity today: '+noActivity.map(function(s){return'<strong>'+esc(s.name)+'</strong>';}).join(', ');
-    } else { alertDiv.style.display='none'; }
-
-    var html='';
-    staff.forEach(function(s){
-      var cls=isToday(s.lastActivity)?'active-today':'';
-      html+='<div class="staff-card '+cls+'">';
-      html+='<div class="staff-avatar">'+esc(initials(s.name))+'</div>';
-      html+='<div class="staff-name">'+esc(s.name)+'</div>';
-      html+='<div class="staff-email">'+esc(s.email)+'</div>';
-      html+='<div class="staff-metrics">';
-      html+='<div class="staff-metric"><div class="staff-metric-num">'+s.contacts+'</div><div class="staff-metric-label">Contacts</div></div>';
-      html+='<div class="staff-metric"><div class="staff-metric-num">'+s.opportunities+'</div><div class="staff-metric-label">Opps</div></div>';
-      html+='</div>';
-      html+='<div class="staff-last">'+sdot(s.lastActivity)+'Last: <strong>'+timeSince(s.lastActivity)+'</strong></div>';
-      html+='</div>';
-    });
-    var grid=document.getElementById('staff-grid');
-    grid.className='staff-grid';
-    grid.innerHTML=html||'<div class="loading">No staff found.</div>';
-  }catch(e){}
+    var d=await fetch('/api/staff').then(function(r){return r.json();});
+    sfList=d.staff||[];
+    var noAct=sfList.filter(function(s){return !isTd(s.lastActivity);});
+    var al=document.getElementById('staff-alert');
+    if(noAct.length){al.style.display='block';al.innerHTML='⚠️ No activity today: '+noAct.map(function(s){return'<strong>'+esc(s.name)+'</strong>';}).join(', ');}
+    else al.style.display='none';
+    var html=sfList.map(function(s){return'<div class="sfc'+(isTd(s.lastActivity)?' act':'')+'"><div class="sfav">'+esc(init(s.name))+'</div><div class="sfn">'+esc(s.name)+'</div><div class="sfe">'+esc(s.email)+'</div><div class="sfm"><div class="sm"><div class="smn">'+s.contacts+'</div><div class="sml">Contacts</div></div><div class="sm"><div class="smn">'+s.opportunities+'</div><div class="sml">Opps</div></div></div><div class="sfl">'+sdot(s.lastActivity)+'Last: <strong>'+ts(s.lastActivity)+'</strong></div></div>';}).join('');
+    var g=document.getElementById('sfgrid');g.className='sfgrid';g.innerHTML=html||'<div class="loading">No staff.</div>';
+    var mx=sfList[0]?.score||1;
+    var cols=['#f59e0b','#94a3b8','#f97316','#6b7280','#6b7280','#6b7280'];
+    document.getElementById('lboard').innerHTML=sfList.slice(0,6).map(function(s,i){var p=Math.round(s.score/mx*100);var r=i===0?'g':i===1?'s':i===2?'b':'o';return'<div class="lbr"><div class="lbrk '+r+'">'+(i+1)+'</div><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(s.name.split(' ')[0])+'</div><div style="font-size:10px;color:var(--muted)">'+s.contacts+' contacts · '+s.oppsWon+' won</div></div><div class="lbbar"><div class="lbfill" style="width:'+p+'%;background:'+cols[i]+'"></div></div></div>';}).join('');
+    buildWL();
+  }catch(e){console.error(e);}
 }
+function buildWL(){gc('ch-wl','bar',{labels:sfList.map(function(s){return s.name.split(' ')[0];}),datasets:[{data:sfList.map(function(s){return s.contacts;}),backgroundColor:sfList.map(function(_,i){var c=['rgba(108,99,255,.8)','rgba(0,196,154,.8)','rgba(59,130,246,.8)','rgba(245,158,11,.8)','rgba(239,68,68,.8)','rgba(139,92,246,.8)'];return c[i%c.length];}),borderRadius:6,borderSkipped:false}]});}
 
 async function loadUsage(){
   try{
-    var r=await fetch('/api/usage');var d=await r.json();
-    var items=[
-      {icon:'👥',label:'Users',val:d.users,color:'#6c63ff'},
-      {icon:'🏢',label:'Sub-Accounts',val:d.locations,color:'#60a5fa'},
-      {icon:'📋',label:'Contacts',val:d.contacts,color:'#00d4aa'},
-      {icon:'💼',label:'Opportunities',val:d.opportunities,color:'#ffd166'},
-      {icon:'💬',label:'Conversations',val:d.conversations,color:'#ff6b6b'},
-      {icon:'⚡',label:'Active Features',val:5,color:'#a78bfa'}
-    ];
-    document.getElementById('usage-grid').innerHTML=items.map(function(item){
-      return'<div class="usage-card"><div class="usage-icon" style="background:'+item.color+'22">'+item.icon+'</div><div><div class="usage-num" style="color:'+item.color+'">'+item.val+'</div><div class="usage-label">'+item.label+'</div></div></div>';
-    }).join('');
-    buildAdoptionChart();
-    buildStaffPerfChart(d);
-  }catch(e){}
+    var d=await fetch('/api/usage').then(function(r){return r.json();});
+    var items=[['👥','Users',d.users,'var(--accent)'],['🏢','Sub-Accounts',d.locations,'var(--blue)'],['📋','Contacts',d.contacts,'var(--green)'],['💼','Opportunities',d.opportunities,'var(--yellow)'],['💬','Conversations',d.conversations,'var(--red)'],['⚡','Active Features',5,'var(--purple)']];
+    document.getElementById('ugrid').innerHTML=items.map(function(x){return'<div class="uc"><div class="uico" style="background:'+x[3]+'22">'+x[0]+'</div><div><div class="un" style="color:'+x[3]+'">'+x[2]+'</div><div class="ul">'+x[1]+'</div></div></div>';}).join('');
+    buildAdopt();
+    fetch('/api/staff').then(function(r){return r.json();}).then(function(sd){var s=sd.staff||[];gc('ch-perf','bar',{labels:s.map(function(x){return x.name.split(' ')[0];}),datasets:[{data:s.map(function(x){return x.score;}),backgroundColor:'rgba(108,99,255,.8)',borderRadius:6,borderSkipped:false}]});});
+  }catch(e){console.error(e);}
 }
+function buildAdopt(){gc('ch-adopt','bar',{labels:['Contacts','Conversations','Opportunities','Calendars','Marketing','Automation','Websites','Payments'],datasets:[{data:[85,72,61,45,38,33,28,22],backgroundColor:['#6c63ff','#00c49a','#f59e0b','#60a5fa','#ef4444','#a78bfa','#34d399','#fb923c'],borderRadius:6,borderSkipped:false}]});}
 
-function buildAdoptionChart(){
-  destroyChart('adoption');
-  var ctx=document.getElementById('chart-adoption');
-  if(!ctx)return;
-  chartInstances['adoption']=new Chart(ctx.getContext('2d'),{
-    type:'bar',
-    data:{
-      labels:['Contacts','Conversations','Opportunities','Calendars','Marketing','Automation','Websites','Payments'],
-      datasets:[{label:'Usage',data:[85,72,61,45,38,33,28,22],backgroundColor:['#6c63ff','#00d4aa','#ffd166','#60a5fa','#ff6b6b','#a78bfa','#34d399','#fb923c'],borderRadius:6,borderSkipped:false}]
-    },
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#8a92a6',font:{size:10}}},y:{grid:{color:'rgba(226,230,240,.8)'},ticks:{color:'#8a92a6',font:{size:11}}}}}
-  });
-}
-
-function buildStaffPerfChart(d){
-  destroyChart('staff-perf');
-  var ctx=document.getElementById('chart-staff-perf');
-  if(!ctx)return;
-  fetch('/api/staff').then(function(r){return r.json();}).then(function(data){
-    var staff=data.staff||[];
-    destroyChart('staff-perf');
-    chartInstances['staff-perf']=new Chart(ctx.getContext('2d'),{
-      type:'bar',
-      data:{
-        labels:staff.map(function(s){return s.name.split(' ')[0];}),
-        datasets:[{label:'Contacts',data:staff.map(function(s){return s.contacts;}),backgroundColor:'rgba(108,99,255,0.8)',borderRadius:6,borderSkipped:false}]
-      },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#8a92a6',font:{size:11}}},y:{grid:{color:'rgba(226,230,240,.8)'},ticks:{color:'#8a92a6',font:{size:11}}}}}
-    });
-  });
-}
-
+async function loadAll(){await Promise.all([loadSummary(),loadHealth(),loadStaff(),loadUsage()]);loadNotifs();}
 loadAll();
-setInterval(loadAll, 5*60*1000);
+setInterval(loadAll,5*60*1000);
+setInterval(loadNotifs,30*1000);
 </script>
 </body>
 </html>`);
 });
 
-app.listen(process.env.PORT || 3000, function(){
-  console.log("MAYBEL Dashboard running on port "+(process.env.PORT||3000));
-});
+app.listen(process.env.PORT||3000,function(){console.log("MAYBEL Dashboard v2 running on port "+(process.env.PORT||3000));});
