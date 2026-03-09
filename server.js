@@ -754,12 +754,11 @@ function loadOnboarding(){
     var pct=Math.round(done/d.steps.length*100);
     document.getElementById('ob-fill').style.width=pct+'%';
     document.getElementById('ob-pct').textContent=pct+'% complete ('+done+'/'+d.steps.length+' steps)';
-    document.getElementById('ob-list').innerHTML=d.steps.map(function(s){return'<div class="cl-item" data-sid="'+s.id+'" onclick="toggleStep(\''+id+'\','+s.id+','+!s.done+',this)"><div class="cl-cb'+(s.done?' done':'')+'">'+( s.done?'✓':'')+'</div><span class="cl-label'+(s.done?' done':'')+'">'+esc(s.label)+'</span></div>';}).join('');
+    document.getElementById('ob-list').innerHTML=d.steps.map(function(s){return'<div class="cl-item" data-sid="'+s.id+'" data-accid="\'+id+\'" data-sid="\'+s.id+\'" data-done="\'+!s.done+\'" onclick="doStep(this)"><div class="cl-cb'+(s.done?' done':'')+'">'+( s.done?'✓':'')+'</div><span class="cl-label'+(s.done?' done':'')+'">'+esc(s.label)+'</span></div>';}).join('');
   });
 }
-function toggleStep(accId,stepId,done,el){
-  fetch('/api/onboarding/'+accId+'/step',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stepId:stepId,done:done})}).then(function(){loadOnboarding();});
-}
+function doStep(el){var accId=el.dataset.accid;var stepId=parseInt(el.dataset.sid);var done=el.dataset.done==='false'||el.dataset.done===false;fetch('/api/onboarding/'+accId+'/step',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stepId:stepId,done:done})}).then(function(){loadOnboarding();});}
+function toggleStep(accId,stepId,done,el){fetch('/api/onboarding/'+accId+'/step',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stepId:stepId,done:done})}).then(function(){loadOnboarding();});}
 
 async function loadUsage(){
   try{
