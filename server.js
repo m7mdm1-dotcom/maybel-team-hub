@@ -16,66 +16,85 @@ function authHeaders() {
   };
 }
 
-// Cache
-var cache = { users: null, contacts: null, opportunities: null, conversations: null, lastFetch: null };
+var cache = { users: [], contacts: [], opportunities: [], lastFetch: null, errors: [] };
 
-async function fetchAll() {
+async function safeGet(url) {
   try {
-    var [usersRes, contactsRes, oppsRes, convsRes] = await Promise.all([
-      axios.get(GHL_API + "/users/?locationId=" + GHL_LOCATION, { headers: authHeaders() }),
-      axios.get(GHL_API + "/contacts/?locationId=" + GHL_LOCATION + "&limit=100", { headers: authHeaders() }),
-      axios.get(GHL_API + "/opportunities/search?location_id=" + GHL_LOCATION + "&limit=100", { headers: authHeaders() }),
-      axios.get(GHL_API + "/conversations/?locationId=" + GHL_LOCATION + "&limit=100", { headers: authHeaders() })
-    ]);
-    cache.users = usersRes.data.users || usersRes.data.data || [];
-    cache.contacts = contactsRes.data.contacts || contactsRes.data.data || [];
-    cache.opportunities = oppsRes.data.opportunities || oppsRes.data.data || [];
-    cache.conversations = convsRes.data.conversations || convsRes.data.data || [];
-    cache.lastFetch = new Date().toISOString();
-    console.log("Cache refreshed at", cache.lastFetch);
+    var r = await axios.get(url, { headers: authHeaders() });
+    return r.data;
   } catch(e) {
-    console.log("fetchAll error:", e.response ? JSON.stringify(e.response.data) : e.message);
+    var msg = url + ": " + (e.response ? JSON.stringify(e.response.data) : e.message);
+    console.log("ERROR:", msg);
+    cache.errors.push(msg);
+    return null;
   }
 }
 
-// Refresh every 5 minutes
+async function fetchAll() {
+  cache.errors = [];
+  console.log("Fetching from GHL...");
+
+  var usersData = await safeGet(GHL_API + "/users/?locationId=" + GHL_LOCATION);
+  cache.users = (usersData && (usersData.users || usersData.data)) || [];
+  console.log("Users:", cache.users.length);
+
+  var contactsData = await safeGet(GHL_API + "/contacts/?locationId=" + GHL_LOCATION + "&limit=100");
+  cache.contacts = (contactsData && (contactsData.contacts || contactsData.data)) || [];
+  console.log("Contacts:", cache.contacts.length);
+
+  var oppsData = await safeGet(GHL_API + "/opportunities/search?location_id=" + GHL_LOCATION + "&limit=100");
+  cache.opportunities = (oppsData && (oppsData.opportunities || oppsData.data)) || [];
+  console.log("Opportunities:", cache.opportunities.length);
+
+  cache.lastFetch = new Date().toISOString();
+  console.log("Done. Users:", cache.users.length, "Contacts:", cache.contacts.length, "Opps:", cache.opportunities.length);
+}
+
 fetchAll();
 setInterval(fetchAll, 5 * 60 * 1000);
 
-// Stats API
-app.get("/stats", async (req, res) => {
-  if (!cache.users) await fetchAll();
+app.get("/debug", (req, res) => {
+  res.json({
+    usersCount: cache.users.length,
+    contactsCount: cache.contacts.length,
+    oppsCount: cache.opportunities.length,
+    lastFetch: cache.lastFetch,
+    errors: cache.errors,
+    firstUser: cache.users[0] || null
+  });
+});
 
-  var users = cache.users || [];
-  var contacts = cache.contacts || [];
-  var opportunities = cache.opportunities || [];
-  var conversations = cache.conversations || [];
-
+app.get("/stats", (req, res) => {
   var today = new Date();
   today.setHours(0,0,0,0);
 
-  var stats = users.map(function(u) {
+  var stats = cache.users.map(function(u) {
     var uid = u.id;
-    var name = u.name || ((u.firstName||"")+" "+(u.lastName||"")).trim() || u.email;
+    var name = u.name || ((u.firstName||"")+" "+(u.lastName||"")).trim() || u.email || "Unknown";
 
-    var myContacts = contacts.filter(function(c){ return c.assignedTo === uid || c.userId === uid; });
-    var myContactsToday = myContacts.filter(function(c){ return new Date(c.dateAdded||c.createdAt) >= today; });
+    var myContacts = cache.contacts.filter(function(c) {
+      return c.assignedTo === uid || c.userId === uid || c.assignedUserId === uid;
+    });
+    var myContactsToday = myContacts.filter(function(c) {
+      var d = new Date(c.dateAdded || c.createdAt || 0);
+      return d >= today;
+    });
 
-    var myOpps = opportunities.filter(function(o){ return o.assignedTo === uid || o.userId === uid; });
-    var myOppsToday = myOpps.filter(function(o){ return new Date(o.createdAt||o.dateAdded) >= today; });
-    var myOppsWon = myOpps.filter(function(o){ return o.status === "won"; });
+    var myOpps = cache.opportunities.filter(function(o) {
+      return o.assignedTo === uid || o.userId === uid || o.assignedUserId === uid;
+    });
+    var myOppsToday = myOpps.filter(function(o) {
+      var d = new Date(o.createdAt || o.dateAdded || 0);
+      return d >= today;
+    });
+    var myOppsWon = myOpps.filter(function(o) { return o.status === "won"; });
 
-    var myConvs = conversations.filter(function(c){ return c.assignedTo === uid || c.userId === uid; });
-    var myConvsToday = myConvs.filter(function(c){ return new Date(c.lastMessageDate||c.dateUpdated||c.createdAt) >= today; });
-
-    // Last activity = most recent action across all data
-    var dates = [
-      ...myContacts.map(function(c){ return c.dateUpdated||c.updatedAt||c.dateAdded; }),
-      ...myOpps.map(function(o){ return o.updatedAt||o.dateUpdated||o.createdAt; }),
-      ...myConvs.map(function(c){ return c.lastMessageDate||c.dateUpdated; })
+    var allDates = [
+      ...myContacts.map(function(c){ return c.dateUpdated||c.updatedAt||c.dateAdded||c.createdAt; }),
+      ...myOpps.map(function(o){ return o.updatedAt||o.dateUpdated||o.createdAt||o.dateAdded; })
     ].filter(Boolean).map(function(d){ return new Date(d); }).filter(function(d){ return !isNaN(d); });
 
-    var lastActivity = dates.length > 0 ? new Date(Math.max.apply(null, dates)).toISOString() : null;
+    var lastActivity = allDates.length > 0 ? new Date(Math.max.apply(null, allDates)).toISOString() : null;
 
     return {
       id: uid,
@@ -84,12 +103,11 @@ app.get("/stats", async (req, res) => {
       role: u.role || u.type || "—",
       lastActivity: lastActivity,
       contacts: { total: myContacts.length, today: myContactsToday.length },
-      opportunities: { total: myOpps.length, today: myOppsToday.length, won: myOppsWon.length },
-      conversations: { total: myConvs.length, today: myConvsToday.length }
+      opportunities: { total: myOpps.length, today: myOppsToday.length, won: myOppsWon.length }
     };
   });
 
-  res.json({ stats: stats, lastFetch: cache.lastFetch });
+  res.json({ stats: stats, lastFetch: cache.lastFetch, errors: cache.errors });
 });
 
 app.get("/team", async (req, res) => {
@@ -111,7 +129,7 @@ app.get("/accounts", async (req, res) => {
 });
 
 app.get("/env-check", (req, res) => {
-  res.json({ hasToken: !!GHL_TOKEN, startsWithPit: GHL_TOKEN.startsWith("pit-"), hasLocationId: !!GHL_LOCATION, locationId: GHL_LOCATION, lastFetch: cache.lastFetch });
+  res.json({ hasToken: !!GHL_TOKEN, startsWithPit: GHL_TOKEN.startsWith("pit-"), locationId: GHL_LOCATION, lastFetch: cache.lastFetch, usersInCache: cache.users.length });
 });
 
 app.get("/", (req, res) => {
@@ -139,8 +157,8 @@ app.get("/", (req, res) => {
     .alert-box{background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:none}
     .alert-box h3{color:#dc2626;font-size:13px;margin-bottom:6px}
     .alert-box ul{color:#7f1d1d;font-size:12px;padding-left:16px;line-height:1.9}
-    .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
-    .user-card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 2px 10px rgba(0,0,0,.06);border-left:4px solid #e5e7eb;transition:.2s}
+    .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+    .user-card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 2px 10px rgba(0,0,0,.06);border-left:4px solid #e5e7eb}
     .user-card.active-today{border-left-color:#16a34a}
     .user-card.inactive{border-left-color:#dc2626}
     .card-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
@@ -151,9 +169,9 @@ app.get("/", (req, res) => {
     .badge.online{background:#dcfce7;color:#16a34a}
     .badge.today{background:#fef9c3;color:#92400e}
     .badge.offline{background:#fee2e2;color:#dc2626}
-    .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+    .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}
     .metric{background:#f8fafc;border-radius:8px;padding:8px;text-align:center}
-    .metric-num{font-size:18px;font-weight:700;color:#111827}
+    .metric-num{font-size:20px;font-weight:700;color:#111827}
     .metric-today{font-size:10px;color:#16a34a;font-weight:600}
     .metric-label{font-size:10px;color:#6b7280;margin-top:2px}
     .last-seen{font-size:11px;color:#6b7280;margin-top:10px;padding-top:8px;border-top:1px solid #f1f3f9}
@@ -162,21 +180,19 @@ app.get("/", (req, res) => {
     .loading{text-align:center;padding:40px;color:#6b7280;font-size:14px}
     table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.06)}
     thead tr{background:#f8fafc}
-    th{padding:11px 14px;text-align:left;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em}
+    th{padding:11px 14px;text-align:left;font-size:11px;color:#6b7280;text-transform:uppercase}
     td{padding:11px 14px;font-size:13px;border-top:1px solid #f1f3f9}
   </style>
 </head>
 <body>
 <h1>MAYBEL Team Tracker</h1>
 <p class="subtitle">Auto-refreshes every 5 minutes from GHL</p>
-
 <div class="top-row">
   <button class="tab active" onclick="switchTab('staff')">👥 Staff Activity</button>
   <button class="tab" onclick="switchTab('accounts')">🏢 Sub-Accounts</button>
   <button class="refresh-btn" onclick="loadAll()">🔄 Refresh Now</button>
-  <span class="last-fetch" id="last-fetch">Loading...</span>
+  <span class="last-fetch" id="last-fetch"></span>
 </div>
-
 <div id="section-staff" class="section active">
   <div class="summary-row">
     <div class="stat-card"><div class="stat-num" id="s-total">—</div><div class="stat-label">Total Staff</div></div>
@@ -188,21 +204,19 @@ app.get("/", (req, res) => {
     <h3>⚠️ No activity today:</h3>
     <ul id="staff-alert-list"></ul>
   </div>
-  <div id="staff-output" class="loading">Loading staff data from GHL...</div>
+  <div id="staff-output" class="loading">Loading...</div>
 </div>
-
 <div id="section-accounts" class="section">
-  <div id="accounts-output" class="loading">Loading accounts...</div>
+  <div id="accounts-output" class="loading">Loading...</div>
 </div>
-
 <script>
-function switchTab(t) {
+function switchTab(t){
   document.querySelectorAll('.tab').forEach(function(b,i){b.classList.toggle('active',(i===0&&t==='staff')||(i===1&&t==='accounts'));});
   document.querySelectorAll('.section').forEach(function(s){s.classList.remove('active');});
   document.getElementById('section-'+t).classList.add('active');
 }
 function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function initials(n){if(!n)return '?';var p=n.trim().split(' ');return(p[0][0]+(p[1]?p[1][0]:'')).toUpperCase();}
+function initials(n){if(!n)return'?';var p=n.trim().split(' ');return(p[0][0]+(p[1]?p[1][0]:'')).toUpperCase();}
 function timeSince(d){
   if(!d)return'Never';
   var mins=Math.floor((new Date()-new Date(d))/60000);
@@ -224,45 +238,32 @@ function badge(d){
   if(isToday(d))return'<span class="badge today">🟡 Active Today</span>';
   return'<span class="badge offline">🔴 Inactive</span>';
 }
-
 async function loadAll(){loadStaff();loadAccounts();}
-
 async function loadStaff(){
   var out=document.getElementById('staff-output');
   try{
     var res=await fetch('/stats');
     var data=await res.json();
     var stats=data.stats||[];
-
-    if(data.lastFetch){
-      document.getElementById('last-fetch').textContent='Last updated: '+timeSince(data.lastFetch);
-    }
-
+    if(data.lastFetch) document.getElementById('last-fetch').textContent='Updated: '+timeSince(data.lastFetch);
     var total=stats.length;
     var activeToday=stats.filter(function(s){return isToday(s.lastActivity);}).length;
-    var totalActions=stats.reduce(function(sum,s){return sum+s.contacts.today+s.opportunities.today+s.conversations.today;},0);
-
+    var totalActions=stats.reduce(function(sum,s){return sum+s.contacts.today+s.opportunities.today;},0);
     document.getElementById('s-total').textContent=total;
     document.getElementById('s-active').textContent=activeToday;
     document.getElementById('s-inactive').textContent=total-activeToday;
     document.getElementById('s-actions').textContent=totalActions;
-
     var noActivity=stats.filter(function(s){return !isToday(s.lastActivity);});
     var alertBox=document.getElementById('staff-alert');
-    var alertList=document.getElementById('staff-alert-list');
     if(noActivity.length>0){
       alertBox.style.display='block';
-      alertList.innerHTML=noActivity.map(function(s){return'<li>'+esc(s.name)+'</li>';}).join('');
-    } else {
-      alertBox.style.display='none';
-    }
-
-    if(!stats.length){out.innerHTML='<div class="loading">No staff found.</div>';return;}
-
+      document.getElementById('staff-alert-list').innerHTML=noActivity.map(function(s){return'<li>'+esc(s.name)+'</li>';}).join('');
+    } else { alertBox.style.display='none'; }
+    if(!stats.length){out.innerHTML='<div class="loading">No staff found. Check /debug for details.</div>';return;}
     var html='<div class="cards-grid">';
     stats.forEach(function(s){
-      var cardClass=isToday(s.lastActivity)?'active-today':'inactive';
-      html+='<div class="user-card '+cardClass+'">';
+      var cc=isToday(s.lastActivity)?'active-today':'inactive';
+      html+='<div class="user-card '+cc+'">';
       html+='<div class="card-header">';
       html+='<div class="avatar">'+esc(initials(s.name))+'</div>';
       html+='<div><div class="card-name">'+esc(s.name)+'</div><div class="card-email">'+esc(s.email)+'</div></div>';
@@ -275,11 +276,8 @@ async function loadStaff(){
       html+='<div class="metric"><div class="metric-num">'+s.opportunities.total+'</div>';
       if(s.opportunities.today>0)html+='<div class="metric-today">+'+s.opportunities.today+' today</div>';
       html+='<div class="metric-label">Opportunities</div></div>';
-      html+='<div class="metric"><div class="metric-num">'+s.conversations.total+'</div>';
-      if(s.conversations.today>0)html+='<div class="metric-today">+'+s.conversations.today+' today</div>';
-      html+='<div class="metric-label">Conversations</div></div>';
       html+='</div>';
-      html+='<div class="last-seen">⏱ Last activity: <strong>'+timeSince(s.lastActivity)+'</strong></div>';
+      html+='<div class="last-seen">⏱ Last action: <strong>'+timeSince(s.lastActivity)+'</strong></div>';
       html+='</div>';
     });
     html+='</div>';
@@ -288,7 +286,6 @@ async function loadStaff(){
     out.innerHTML='<div class="loading" style="color:#dc2626">Error: '+esc(e.message)+'</div>';
   }
 }
-
 async function loadAccounts(){
   var out=document.getElementById('accounts-output');
   try{
@@ -307,7 +304,6 @@ async function loadAccounts(){
     out.innerHTML='<div class="loading" style="color:#dc2626">Error: '+esc(e.message)+'</div>';
   }
 }
-
 loadAll();
 setInterval(loadAll,5*60*1000);
 </script>
@@ -316,5 +312,5 @@ setInterval(loadAll,5*60*1000);
 });
 
 app.listen(process.env.PORT || 3000, function(){
-  console.log("MAYBEL Tracker running on port "+(process.env.PORT||3000));
+  console.log("MAYBEL Tracker running");
 });
