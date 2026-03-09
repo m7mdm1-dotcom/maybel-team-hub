@@ -33,7 +33,7 @@ app.get("/", (req, res) => {
           box-shadow: 0 8px 24px rgba(0,0,0,0.08);
           margin-bottom: 20px;
         }
-        h1 {
+        h1, h2 {
           margin-top: 0;
         }
         button {
@@ -74,6 +74,24 @@ app.get("/", (req, res) => {
           font-size: 12px;
           font-weight: bold;
         }
+        .error {
+          color: #b91c1c;
+          background: #fee2e2;
+          padding: 12px;
+          border-radius: 10px;
+          margin-top: 12px;
+          white-space: pre-wrap;
+        }
+        .debug-box {
+          margin-top: 16px;
+          padding: 14px;
+          background: #0f172a;
+          color: #e5e7eb;
+          border-radius: 10px;
+          font-size: 12px;
+          overflow-x: auto;
+          white-space: pre-wrap;
+        }
       </style>
     </head>
     <body>
@@ -99,10 +117,26 @@ app.get("/", (req, res) => {
             const res = await fetch("/team");
             const data = await res.json();
 
-            const users = data.users || data.data || [];
+            if (!res.ok) {
+              output.innerHTML = '<div class="error">Error loading team:\\n' + JSON.stringify(data, null, 2) + '</div>';
+              return;
+            }
 
-            if (!users.length) {
-              output.innerHTML = "No users found.";
+            const users =
+              Array.isArray(data)
+                ? data
+                : data.users ||
+                  data.data ||
+                  data.results ||
+                  data.members ||
+                  data.team ||
+                  [];
+
+            if (!Array.isArray(users) || users.length === 0) {
+              output.innerHTML = \`
+                <div>No users found.</div>
+                <div class="debug-box">\${JSON.stringify(data, null, 2)}</div>
+              \`;
               return;
             }
 
@@ -119,10 +153,18 @@ app.get("/", (req, res) => {
             \`;
 
             users.forEach(user => {
+              const name =
+                user.name ||
+                [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+                user.firstName ||
+                "—";
+
+              const email = user.email || user.userEmail || "—";
+
               html += \`
                 <tr>
-                  <td>\${user.name || user.firstName || "—"}</td>
-                  <td>\${user.email || "—"}</td>
+                  <td>\${name}</td>
+                  <td>\${email}</td>
                   <td><span class="status">Active</span></td>
                 </tr>
               \`;
@@ -131,7 +173,7 @@ app.get("/", (req, res) => {
             html += "</tbody></table>";
             output.innerHTML = html;
           } catch (err) {
-            output.innerHTML = "Error loading team.";
+            output.innerHTML = '<div class="error">Error loading team.\\n' + err.message + '</div>';
           }
         }
       </script>
@@ -142,18 +184,44 @@ app.get("/", (req, res) => {
 
 app.get("/team", async (req, res) => {
   try {
-    const response = await axios.get(`${GHL_API}/users/`, {
+    const response = await axios.get(`${GHL_API}/users/search`, {
       headers: {
-        Authorization: `Bearer ${process.env.GHL_API_KEY}`,
-        Version: "2021-07-28"
+        Authorization: \`Bearer \${process.env.GHL_API_KEY}\`,
+        Version: "2021-07-28",
+        Accept: "application/json"
       }
     });
 
+    console.log("GHL TEAM RESPONSE:");
+    console.log(JSON.stringify(response.data, null, 2));
+
     res.json(response.data);
   } catch (error) {
-    res.status(500).json({
+    console.log("GHL TEAM ERROR:");
+    console.log(JSON.stringify(error.response?.data || error.message, null, 2));
+
+    res.status(error.response?.status || 500).json({
+      success: false,
       error: error.response?.data || error.message
     });
+  }
+});
+
+app.get("/team-debug", async (req, res) => {
+  try {
+    const response = await axios.get(`${GHL_API}/users/search`, {
+      headers: {
+        Authorization: \`Bearer \${process.env.GHL_API_KEY}\`,
+        Version: "2021-07-28",
+        Accept: "application/json"
+      }
+    });
+
+    res.send(\`<pre>\${JSON.stringify(response.data, null, 2)}</pre>\`);
+  } catch (error) {
+    res
+      .status(error.response?.status || 500)
+      .send(\`<pre>\${JSON.stringify(error.response?.data || error.message, null, 2)}</pre>\`);
   }
 });
 
