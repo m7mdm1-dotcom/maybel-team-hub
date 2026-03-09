@@ -5,6 +5,8 @@ const app = express();
 app.use(express.json());
 
 const GHL_API = "https://services.leadconnectorhq.com";
+const GHL_TOKEN = "pit-d6e4af69-dfb1-419d-950e-a12b1871ad2f";
+const GHL_LOCATION = "vDPsiitUXcHrxv7zaNda";
 
 app.get("/", (req, res) => {
   res.send(`
