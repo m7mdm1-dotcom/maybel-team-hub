@@ -83,8 +83,8 @@ app.get("/", (req, res) => {
 });
 
 app.get("/env-check", (req, res) => {
-  var token = (process.env.GHL_API_KEY || "").trim();
-  var locationId = (process.env.GHL_LOCATION_ID || "").trim();
+  var token = GHL_TOKEN;
+var locationId = GHL_LOCATION;
   res.json({
     hasToken: !!token,
     tokenPreview: token ? token.slice(0, 8) + "..." + token.slice(-4) : null,
@@ -97,8 +97,8 @@ app.get("/env-check", (req, res) => {
 
 app.get("/team", async (req, res) => {
   try {
-    var token = (process.env.GHL_API_KEY || "").trim();
-    var locationId = (process.env.GHL_LOCATION_ID || "").trim();
+    var token = GHL_TOKEN;
+var locationId = GHL_LOCATION;
 
     var response = await axios.get(GHL_API + "/users/?locationId=" + locationId, {
       headers: {
