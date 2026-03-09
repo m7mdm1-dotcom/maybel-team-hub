@@ -215,10 +215,25 @@ app.get("/team", async (req, res) => {
     const locationId = (process.env.GHL_LOCATION_ID || "").trim();
 
     const response = await axios.get(`${GHL_API}/users/?locationId=${locationId}`, {
-  headers: {
-    Authorization: `Bearer ${token}`,
-    Version: "2021-07-28",
-    Accept: "application/json"
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Version: "2021-07-28",
+        Accept: "application/json"
+      }
+    });
+
+    console.log("GHL TEAM RESPONSE:");
+    console.log(JSON.stringify(response.data, null, 2));
+
+    res.json(response.data);
+  } catch (error) {
+    console.log("GHL TEAM ERROR:");
+    console.log(JSON.stringify(error.response?.data || error.message, null, 2));
+
+    res.status(error.response?.status || 500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
   }
 });
       headers: {
