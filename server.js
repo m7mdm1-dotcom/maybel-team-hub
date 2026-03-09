@@ -915,9 +915,9 @@ async function loadAnalytics(){
   try{
     var d=await fetch('/api/analytics').then(function(r){return r.json();});
     anaData=d;
-    var mrr=d.mrrData||[];var lastMRR=mrr[mrr.length-1]?.mrr||0;var prevMRR=mrr[mrr.length-2]?.mrr||0;var trend=prevMRR>0?Math.round((lastMRR-prevMRR)/prevMRR*100):0;
+    var mrr=d.mrrData||[];var lastMRR=(mrr[mrr.length-1]||{}).mrr||0;var prevMRR=(mrr[mrr.length-2]||{}).mrr||0;var trend=prevMRR>0?Math.round((lastMRR-prevMRR)/prevMRR*100):0;
     document.getElementById('mrr-d').innerHTML='<div class="mrrb">'+fm(lastMRR)+'</div><div class="mrrt">'+(trend>=0?'↑':'↓')+Math.abs(trend)+'% vs last month</div>';
-    var churn=d.churnData||[];var lc=churn[churn.length-1]?.churn||0;
+    var churn=d.churnData||[];var lc=(churn[churn.length-1]||{}).churn||0;
     document.getElementById('churn-d').innerHTML='<div class="mrrb" style="color:var('+(lc>3?'--red':'--green')+')">'+lc+'%</div><div style="font-size:11px;color:var(--muted);margin-top:4px">This month</div>';
     var co=d.cohortList||[];
     document.getElementById('cohort-d').innerHTML='<table style="width:100%"><thead><tr><th style="padding:4px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Period</th><th style="padding:4px 8px;font-size:10px;color:var(--muted);text-transform:uppercase">Contacts</th></tr></thead><tbody>'+co.map(function(c){return'<tr><td style="padding:4px 8px;font-size:11px">'+esc(c.period)+'</td><td style="padding:4px 8px;font-size:12px;font-weight:600">'+c.count+'</td></tr>';}).join('')+'</tbody></table>';
@@ -956,7 +956,7 @@ async function loadStaff(){
         '</div>';
     }).join('');
     var g=document.getElementById('sfgrid');g.className='sfgrid';g.innerHTML=html||'<div class="loading">No staff.</div>';
-    var mx=sfList[0]?.score||1;
+    var mx=(sfList[0]||{score:1}).score||1;
     var cols=['#f59e0b','#94a3b8','#f97316','#6b7280','#6b7280','#6b7280'];
     document.getElementById('lboard').innerHTML=sfList.slice(0,6).map(function(s,i){var p=Math.round(s.score/mx*100);var r=i===0?'g':i===1?'s':i===2?'b':'o';return'<div class="lbr"><div class="lbrk '+r+'">'+(i+1)+'</div><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(s.name.split(' ')[0])+'</div><div style="font-size:10px;color:var(--muted)">Score: '+s.score+' · RT: '+rtClass(s.avgResponseMin)+'</div></div><div class="lbbar"><div class="lbfill" style="width:'+p+'%;background:'+cols[i]+'"></div></div></div>';}).join('');
     document.getElementById('shift-board').innerHTML=sfList.map(function(s){return'<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border)"><div><div style="font-size:12px;font-weight:600">'+esc(s.name.split(' ')[0])+'</div><div style="font-size:10px;color:var(--muted)">'+(s.isOnShift?'🟢 Since '+ts(s.shiftStart):'⚫ Offline')+'</div></div><div style="font-size:18px">'+(s.isOnShift?'🟢':'⚫')+'</div></div>';}).join('');
