@@ -454,12 +454,12 @@ function renderHT(data){
   var h='<div style="overflow-x:auto"><table><thead><tr><th><input type="checkbox"/></th><th>Sub-Account</th><th>Last Updated</th><th>Login Activity</th><th>Product Adoption</th><th>NPS</th><th>Health</th><th>CSM</th><th>Actions</th><th>Status</th></tr></thead><tbody>';
   data.forEach(function(a){
     h+='<tr><td><input type="checkbox"/></td>';
-    h+='<td><strong style="cursor:pointer;color:var(--accent)" onclick="openMo(\''+a.id+'\')">'+esc(a.name)+'</strong><div style="font-size:10px;color:var(--muted)">'+esc(a.email)+'</div></td>';
+    h+='<td><strong style="cursor:pointer;color:var(--accent)" onclick="openMo(this.dataset.id)" data-id="'+a.id+'">'+esc(a.name)+'</strong><div style="font-size:10px;color:var(--muted)">'+esc(a.email)+'</div></td>';
     h+='<td style="font-size:11px;color:var(--muted)">'+ts(a.lastUpdated||a.lastActivity)+'</td>';
     h+='<td>'+pb(a.loginScore,a.loginMax)+'</td><td>'+pb(a.adoptionScore,a.adoptionMax)+'</td><td>'+pb(a.npsScore,a.npsMax)+'</td>';
     h+='<td>'+hbadge(a.health)+'</td>';
-    h+='<td><select class="csms" onchange="assignCSM(\''+a.id+'\',this.value)">'+csmOpts+'</select></td>';
-    h+='<td style="display:flex;gap:3px"><button class="ab" onclick="reqFB(\''+a.id+'\',\''+esc(a.name)+'\')" title="Request Feedback">📩</button><button class="ab" onclick="openMo(\''+a.id+'\')" title="View">👁️</button></td>';
+    h+='<td><select class="csms" data-id="'+a.id+'" onchange="assignCSM(this.dataset.id,this.value)">'+csmOpts+'</select></td>';
+    h+='<td style="display:flex;gap:3px"><button class="ab" data-id="'+a.id+'" data-nm="'+a.name.replace(/"/g, '&quot;')+'" onclick="reqFB(this.dataset.id,this.dataset.nm)" title="Feedback">📩</button><button class="ab" data-id="'+a.id+'" onclick="openMo(this.dataset.id)" title="View">👁️</button></td>';
     h+='<td><span style="width:8px;height:8px;border-radius:50%;background:'+(a.isChurned?'var(--red)':a.health==="Thriving"?'var(--green)':'var(--yellow)')+';display:inline-block"></span></td></tr>';
   });
   h+='</tbody></table></div><div style="padding:9px 12px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)">Showing '+data.length+' of '+hData.length+' entries</div>';
