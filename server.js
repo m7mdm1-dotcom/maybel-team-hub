@@ -197,26 +197,25 @@ app.get("/", (req, res) => {
 
 app.get("/team", async (req, res) => {
   try {
-    const response = await axios.get(`${GHL_API}/users/search`, {
+    const response = await axios.get(`${GHL_API}/users/`, {
       headers: {
         Authorization: `Bearer ${process.env.GHL_API_KEY}`,
         Version: "2021-07-28",
-        Accept: "application/json"
+        "Location-Id": process.env.GHL_LOCATION_ID
       }
     });
 
-    console.log("GHL TEAM RESPONSE:");
-    console.log(JSON.stringify(response.data, null, 2));
-
     res.json(response.data);
-  } catch (error) {
-    console.log("GHL TEAM ERROR:");
-    console.log(JSON.stringify(error.response?.data || error.message, null, 2));
 
-    res.status(error.response?.status || 500).json({
+  } catch (error) {
+
+    console.log(error.response?.data || error.message);
+
+    res.status(500).json({
       success: false,
       error: error.response?.data || error.message
     });
+
   }
 });
 
