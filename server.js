@@ -118,7 +118,10 @@ app.get("/", (req, res) => {
             const data = await res.json();
 
             if (!res.ok) {
-              output.innerHTML = '<div class="error">Error loading team:\\n' + JSON.stringify(data, null, 2) + '</div>';
+              output.innerHTML =
+                '<div class="error">Error loading team:\\n' +
+                JSON.stringify(data, null, 2) +
+                '</div>';
               return;
             }
 
@@ -132,26 +135,26 @@ app.get("/", (req, res) => {
                 [];
 
             if (!Array.isArray(users) || users.length === 0) {
-              output.innerHTML = `
-                <div>No users found.</div>
-                <div class="debug-box">${JSON.stringify(data, null, 2)}</div>
-              `;
+              output.innerHTML =
+                '<div>No users found.</div>' +
+                '<div class="debug-box">' +
+                JSON.stringify(data, null, 2) +
+                '</div>';
               return;
             }
 
-            let html = `
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-            `;
+            let html =
+              '<table>' +
+                '<thead>' +
+                  '<tr>' +
+                    '<th>Name</th>' +
+                    '<th>Email</th>' +
+                    '<th>Status</th>' +
+                  '</tr>' +
+                '</thead>' +
+                '<tbody>';
 
-            users.forEach(user => {
+            users.forEach(function(user) {
               const name =
                 user.name ||
                 [user.firstName, user.lastName].filter(Boolean).join(" ") ||
@@ -160,20 +163,31 @@ app.get("/", (req, res) => {
 
               const email = user.email || user.userEmail || "—";
 
-              html += `
-                <tr>
-                  <td>${name}</td>
-                  <td>${email}</td>
-                  <td><span class="status">Active</span></td>
-                </tr>
-              `;
+              html +=
+                '<tr>' +
+                  '<td>' + escapeHtml(name) + '</td>' +
+                  '<td>' + escapeHtml(email) + '</td>' +
+                  '<td><span class="status">Active</span></td>' +
+                '</tr>';
             });
 
-            html += "</tbody></table>";
+            html += '</tbody></table>';
             output.innerHTML = html;
           } catch (err) {
-            output.innerHTML = '<div class="error">Error loading team.\\n' + err.message + '</div>';
+            output.innerHTML =
+              '<div class="error">Error loading team.\\n' +
+              escapeHtml(err.message) +
+              '</div>';
           }
+        }
+
+        function escapeHtml(value) {
+          return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
         }
       </script>
     </body>
@@ -216,11 +230,11 @@ app.get("/team-debug", async (req, res) => {
       }
     });
 
-    res.send(`<pre>${JSON.stringify(response.data, null, 2)}</pre>`);
+    res.send("<pre>" + JSON.stringify(response.data, null, 2) + "</pre>");
   } catch (error) {
     res
       .status(error.response?.status || 500)
-      .send(`<pre>${JSON.stringify(error.response?.data || error.message, null, 2)}</pre>`);
+      .send("<pre>" + JSON.stringify(error.response?.data || error.message, null, 2) + "</pre>");
   }
 });
 
