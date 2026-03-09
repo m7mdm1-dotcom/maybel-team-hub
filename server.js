@@ -122,25 +122,24 @@ app.get("/", (req, res) => {
               return;
             }
 
-            const users =
-              Array.isArray(data)
-                ? data
-                : data.users ||
-                  data.data ||
-                  data.results ||
-                  data.members ||
-                  data.team ||
-                  [];
+            const users = Array.isArray(data)
+              ? data
+              : data.users ||
+                data.data ||
+                data.results ||
+                data.members ||
+                data.team ||
+                [];
 
             if (!Array.isArray(users) || users.length === 0) {
-              output.innerHTML = \`
+              output.innerHTML = `
                 <div>No users found.</div>
-                <div class="debug-box">\${JSON.stringify(data, null, 2)}</div>
-              \`;
+                <div class="debug-box">${JSON.stringify(data, null, 2)}</div>
+              `;
               return;
             }
 
-            let html = \`
+            let html = `
               <table>
                 <thead>
                   <tr>
@@ -150,7 +149,7 @@ app.get("/", (req, res) => {
                   </tr>
                 </thead>
                 <tbody>
-            \`;
+            `;
 
             users.forEach(user => {
               const name =
@@ -161,13 +160,13 @@ app.get("/", (req, res) => {
 
               const email = user.email || user.userEmail || "—";
 
-              html += \`
+              html += `
                 <tr>
-                  <td>\${name}</td>
-                  <td>\${email}</td>
+                  <td>${name}</td>
+                  <td>${email}</td>
                   <td><span class="status">Active</span></td>
                 </tr>
-              \`;
+              `;
             });
 
             html += "</tbody></table>";
@@ -186,7 +185,7 @@ app.get("/team", async (req, res) => {
   try {
     const response = await axios.get(`${GHL_API}/users/search`, {
       headers: {
-        Authorization: \`Bearer \${process.env.GHL_API_KEY}\`,
+        Authorization: `Bearer ${process.env.GHL_API_KEY}`,
         Version: "2021-07-28",
         Accept: "application/json"
       }
@@ -211,17 +210,17 @@ app.get("/team-debug", async (req, res) => {
   try {
     const response = await axios.get(`${GHL_API}/users/search`, {
       headers: {
-        Authorization: \`Bearer \${process.env.GHL_API_KEY}\`,
+        Authorization: `Bearer ${process.env.GHL_API_KEY}`,
         Version: "2021-07-28",
         Accept: "application/json"
       }
     });
 
-    res.send(\`<pre>\${JSON.stringify(response.data, null, 2)}</pre>\`);
+    res.send(`<pre>${JSON.stringify(response.data, null, 2)}</pre>`);
   } catch (error) {
     res
       .status(error.response?.status || 500)
-      .send(\`<pre>\${JSON.stringify(error.response?.data || error.message, null, 2)}</pre>\`);
+      .send(`<pre>${JSON.stringify(error.response?.data || error.message, null, 2)}</pre>`);
   }
 });
 
