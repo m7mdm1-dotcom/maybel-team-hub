@@ -97,19 +97,28 @@ app.get("/api/health", (req, res) => {
 
     var loginScore = lastActivity ? (new Date()-new Date(lastActivity) < 86400000 ? 6 : new Date()-new Date(lastActivity) < 604800000 ? 3 : 0) : 0;
     var adoptionScore = Math.min(16, myContacts.length + myOpps.length);
+    var npsScore = myConvs.length > 2 ? Math.min(6, myConvs.length) : 0;
     var health = (loginScore + adoptionScore > 12) ? "Thriving" : (loginScore + adoptionScore > 6) ? "Healthy" : (loginScore + adoptionScore > 2) ? "Steady" : "At-risk";
+    var isPriority = loginScore < 3 && adoptionScore < 8;
+    var isChurned = !lastActivity || (new Date()-new Date(lastActivity)) > 30*86400000;
+    var isSaaS = !!(loc.plan === "saas" || loc.saasEnabled);
 
     return {
       id: locId,
       name: loc.name || loc.businessName || "Account",
       email: loc.email || "—",
       lastActivity: lastActivity,
-      loginActivity: loginScore + "/6",
-      productAdoption: adoptionScore + "/16",
+      lastUpdated: loc.dateUpdated || loc.updatedAt || lastActivity,
+      loginScore: loginScore, loginMax: 6,
+      adoptionScore: adoptionScore, adoptionMax: 16,
+      npsScore: npsScore, npsMax: 6,
       health: health,
       contacts: myContacts.length,
       opportunities: myOpps.length,
-      conversations: myConvs.length
+      conversations: myConvs.length,
+      isSaaS: isSaaS,
+      isPriority: isPriority,
+      isChurned: isChurned
     };
   });
 
@@ -157,31 +166,31 @@ app.get("/", (req, res) => {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
 :root{
-  --bg:#0a0c10;
-  --surface:#13161d;
-  --surface2:#1a1e28;
-  --border:#252a38;
+  --bg:#f4f6fb;
+  --surface:#ffffff;
+  --surface2:#f0f2f8;
+  --border:#e2e6f0;
   --accent:#6c63ff;
-  --accent2:#00d4aa;
+  --accent2:#00c49a;
   --accent3:#ff6b6b;
   --accent4:#ffd166;
-  --text:#e8eaf0;
-  --muted:#6b7280;
-  --green:#00d4aa;
+  --text:#1a1d2e;
+  --muted:#8a92a6;
+  --green:#00c49a;
   --red:#ff6b6b;
-  --yellow:#ffd166;
-  --blue:#60a5fa;
+  --yellow:#f59e0b;
+  --blue:#3b82f6;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 /* HEADER */
-.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;height:56px;gap:24px;position:sticky;top:0;z-index:100}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;height:56px;gap:24px;position:sticky;top:0;z-index:100;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 .logo{font-weight:700;font-size:16px;color:#fff;letter-spacing:-.3px}
 .logo span{color:var(--accent)}
 .nav{display:flex;gap:2px;flex:1}
 .nav-btn{padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;transition:.15s}
 .nav-btn:hover{color:var(--text);background:var(--surface2)}
-.nav-btn.active{color:#fff;background:var(--surface2)}
+.nav-btn.active{color:var(--accent);background:rgba(108,99,255,.08);font-weight:600}
 .header-right{display:flex;align-items:center;gap:12px}
 .refresh-btn{padding:7px 14px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:12px;background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s}
 .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
@@ -191,15 +200,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .page.active{display:block}
 /* STAT CARDS */
 .stats-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden;transition:.2s}
-.stat-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden;transition:.2s;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.stat-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(108,99,255,.1)}
 .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
 .stat-card.green::before{background:linear-gradient(90deg,var(--green),transparent)}
 .stat-card.red::before{background:linear-gradient(90deg,var(--red),transparent)}
 .stat-card.yellow::before{background:linear-gradient(90deg,var(--yellow),transparent)}
 .stat-card.blue::before{background:linear-gradient(90deg,var(--blue),transparent)}
 .stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:500}
-.stat-num{font-size:28px;font-weight:700;color:#fff;line-height:1}
+.stat-num{font-size:28px;font-weight:700;color:var(--text);line-height:1}
 .stat-sub{font-size:11px;color:var(--muted);margin-top:4px}
 .stat-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;margin-top:6px}
 .stat-badge.up{background:rgba(0,212,170,.15);color:var(--green)}
@@ -209,19 +218,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .section-title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
 /* CHARTS ROW */
 .charts-row{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:24px}
-.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px}
-.chart-title{font-size:13px;font-weight:600;color:#fff;margin-bottom:4px}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.chart-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px}
 .chart-sub{font-size:11px;color:var(--muted);margin-bottom:16px}
 .chart-wrap{position:relative;height:220px}
 /* HEALTH TABLE */
-.health-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px}
+.health-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
 .health-table-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .health-tabs{display:flex;gap:4px}
 .health-tab{padding:5px 12px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:500;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif}
-.health-tab.active{background:var(--surface2);color:#fff}
+.health-tab.active{background:rgba(108,99,255,.1);color:var(--accent);font-weight:600}
 table{width:100%;border-collapse:collapse}
-th{padding:10px 16px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);font-weight:500}
-td{padding:12px 16px;font-size:13px;border-bottom:1px solid rgba(37,42,56,.5)}
+thead tr{background:var(--surface2)}
+th{padding:10px 16px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);font-weight:600}
+td{padding:12px 16px;font-size:13px;border-bottom:1px solid var(--border);color:var(--text)}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--surface2)}
 /* BADGES */
@@ -235,15 +245,15 @@ tr:hover td{background:var(--surface2)}
 .prog-fill{height:4px;border-radius:999px;background:var(--accent)}
 /* STAFF CARDS */
 .staff-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px}
-.staff-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;transition:.2s}
-.staff-card:hover{border-color:var(--accent);transform:translateY(-1px)}
-.staff-card.active-today{border-color:rgba(0,212,170,.3)}
+.staff-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;transition:.2s;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.staff-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(108,99,255,.1)}
+.staff-card.active-today{border-color:rgba(0,196,154,.4);box-shadow:0 2px 12px rgba(0,196,154,.08)}
 .staff-avatar{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;margin-bottom:10px}
-.staff-name{font-weight:600;font-size:13px;color:#fff;margin-bottom:2px}
+.staff-name{font-weight:600;font-size:13px;color:var(--text);margin-bottom:2px}
 .staff-email{font-size:11px;color:var(--muted);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .staff-metrics{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.staff-metric{background:var(--surface2);border-radius:8px;padding:8px;text-align:center}
-.staff-metric-num{font-size:18px;font-weight:700;color:#fff}
+.staff-metric{background:var(--surface2);border-radius:8px;padding:8px;text-align:center;border:1px solid var(--border)}
+.staff-metric-num{font-size:18px;font-weight:700;color:var(--text)}
 .staff-metric-label{font-size:10px;color:var(--muted);margin-top:2px}
 .staff-last{font-size:11px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
 /* STATUS DOT */
@@ -253,16 +263,34 @@ tr:hover td{background:var(--surface2)}
 .sdot.offline{background:var(--red)}
 /* USAGE GRID */
 .usage-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
-.usage-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;display:flex;align-items:center;gap:16px}
+.usage-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;display:flex;align-items:center;gap:16px;box-shadow:0 1px 4px rgba(0,0,0,.04);transition:.2s}
+.usage-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.08);transform:translateY(-1px)}
 .usage-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
-.usage-num{font-size:26px;font-weight:700;color:#fff}
+.usage-num{font-size:26px;font-weight:700;color:var(--text)}
 .usage-label{font-size:12px;color:var(--muted);margin-top:2px}
 /* LOADING */
 .loading{text-align:center;padding:48px;color:var(--muted);font-size:14px}
 .pulse{animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 /* ALERT */
-.alert-row{background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.2);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--red)}
+.alert-row{background:rgba(255,107,107,.07);border:1px solid rgba(255,107,107,.25);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#cc3333}
+/* HEALTH PAGE STYLES */
+.health-topbar{margin-bottom:16px}
+.htabs{display:flex;gap:2px;border-bottom:2px solid var(--border);padding-bottom:0}
+.htab{padding:8px 16px;border:none;border-bottom:2px solid transparent;background:transparent;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:var(--muted);margin-bottom:-2px;transition:.15s;display:flex;align-items:center;gap:7px}
+.htab:hover{color:var(--text)}
+.htab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.htab-count{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.htab.active .htab-count{background:rgba(108,99,255,.12);color:var(--accent)}
+.health-controls{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.h-search{flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none}
+.h-search:focus{border-color:var(--accent)}
+.h-select{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);outline:none;cursor:pointer}
+.h-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:13px;font-weight:500;font-family:'DM Sans',sans-serif;background:var(--surface2);color:var(--text);transition:.15s}
+.h-btn:hover{border-color:var(--accent);color:var(--accent)}
+.h-btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.h-btn-primary:hover{background:#5a52d5;color:#fff}
+.h-pagination{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -309,18 +337,30 @@ tr:hover td{background:var(--surface2)}
 
 <!-- HEALTH PAGE -->
 <div class="page" id="page-health">
-  <div class="section-title"><span class="dot"></span>Account Health Overview</div>
-  <div class="health-table-wrap">
-    <div class="health-table-header">
-      <div style="font-size:13px;font-weight:600;color:#fff">Sub-Account Health</div>
-      <div class="health-tabs">
-        <button class="health-tab active" onclick="filterHealth('all',this)">All</button>
-        <button class="health-tab" onclick="filterHealth('thriving',this)">Thriving</button>
-        <button class="health-tab" onclick="filterHealth('atrisk',this)">At-risk</button>
-      </div>
+  <div class="health-topbar">
+    <div class="htabs" id="htabs">
+      <button class="htab active" onclick="setHealthFilter('all',this)">All <span class="htab-count" id="hc-all">0</span></button>
+      <button class="htab" onclick="setHealthFilter('saas',this)">SaaS <span class="htab-count" id="hc-saas">0/0</span></button>
+      <button class="htab" onclick="setHealthFilter('nonsaas',this)">Non-SaaS <span class="htab-count" id="hc-nonsaas">0/0</span></button>
+      <button class="htab" onclick="setHealthFilter('priority',this)">Priority <span class="htab-count" id="hc-priority">0/0</span></button>
+      <button class="htab" onclick="setHealthFilter('churned',this)">Churned <span class="htab-count" id="hc-churned">0</span></button>
     </div>
-    <div id="health-table">
-      <div class="loading pulse">Loading health data...</div>
+  </div>
+  <div class="health-table-wrap">
+    <div class="health-controls">
+      <input class="h-search" id="h-search" placeholder="🔍 Search Sub-Account" oninput="applyHealthFilters()"/>
+      <select class="h-select" id="h-status-filter" onchange="applyHealthFilters()">
+        <option value="">All Health Status</option>
+        <option value="Thriving">Thriving</option>
+        <option value="Healthy">Healthy</option>
+        <option value="Steady">Steady</option>
+        <option value="At-risk">At-risk</option>
+      </select>
+      <button class="h-btn h-btn-primary" onclick="exportCSV()">Export CSV</button>
+    </div>
+    <div id="health-table"><div class="loading pulse">Loading...</div></div>
+    <div class="h-pagination">
+      <span id="h-showing" style="font-size:12px;color:var(--muted)"></span>
     </div>
   </div>
 </div>
@@ -414,7 +454,7 @@ async function loadSummary(){
     // Pipeline donut chart
     destroyChart('pipeline');
     var ctx=document.getElementById('chart-pipeline').getContext('2d');
-    chartInstances['pipeline']=new Chart(ctx,{type:'doughnut',data:{labels:['Won','Open','Other'],datasets:[{data:[d.oppsWon,d.oppsOpen,Math.max(0,d.opportunities-d.oppsWon-d.oppsOpen)],backgroundColor:['#00d4aa','#6c63ff','#252a38'],borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#6b7280',font:{size:11},padding:12}}},cutout:'65%'}});
+    chartInstances['pipeline']=new Chart(ctx,{type:'doughnut',data:{labels:['Won','Open','Other'],datasets:[{data:[d.oppsWon,d.oppsOpen,Math.max(0,d.opportunities-d.oppsWon-d.oppsOpen)],backgroundColor:['#00c49a','#6c63ff','#e2e6f0'],borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#8a92a6',font:{size:11},padding:12}}},cutout:'65%'}});
 
     // Contacts bar chart (simulated monthly)
     destroyChart('contacts');
@@ -424,14 +464,15 @@ async function loadSummary(){
     var labels=months.slice(0,now+1);
     var base=Math.floor(d.contacts/Math.max(now+1,1));
     var vals=labels.map(function(_,i){return Math.round(base*(0.6+i*0.08)+(Math.random()*base*0.2));});
-    chartInstances['contacts']=new Chart(ctx2,{type:'bar',data:{labels:labels,datasets:[{label:'Contacts',data:vals,backgroundColor:'rgba(108,99,255,0.7)',borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#6b7280',font:{size:11}}},y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7280',font:{size:11}}}}}});
+    chartInstances['contacts']=new Chart(ctx2,{type:'bar',data:{labels:labels,datasets:[{label:'Contacts',data:vals,backgroundColor:'rgba(108,99,255,0.75)',borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#8a92a6',font:{size:11}}},y:{grid:{color:'rgba(226,230,240,.8)'},ticks:{color:'#8a92a6',font:{size:11}}}}}});
 
     // Recent activity
     document.getElementById('recent-activity').innerHTML='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'+
       ['Contacts today','Open opportunities','Conversations today'].map(function(label,i){
         var val=[d.contactsToday,d.oppsOpen,d.convToday][i];
         var color=['var(--green)','var(--accent)','var(--blue)'][i];
-        return'<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px"><div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+label+'</div><div style="font-size:32px;font-weight:700;color:'+color+'">'+val+'</div></div>';
+        var bg=['rgba(0,196,154,.06)','rgba(108,99,255,.06)','rgba(59,130,246,.06)'][i];
+        return'<div style="background:'+bg+';border:1px solid var(--border);border-radius:12px;padding:20px"><div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">'+label+'</div><div style="font-size:36px;font-weight:700;color:'+color+'">'+val+'</div></div>';
       }).join('')+'</div>';
   }catch(e){console.error(e);}
 }
@@ -440,30 +481,104 @@ async function loadHealth(){
   try{
     var r=await fetch('/api/health');var d=await r.json();
     healthData=d.accounts||[];
+    updateHealthCounts();
     renderHealthTable(healthData);
-  }catch(e){}
+  }catch(e){console.error('loadHealth error',e);}
+}
+
+var healthFilter = 'all';
+var healthSearch = '';
+var healthStatusFilter = '';
+
+function setHealthFilter(f, btn){
+  healthFilter = f;
+  document.querySelectorAll('.htab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  applyHealthFilters();
+}
+
+function applyHealthFilters(){
+  healthSearch = (document.getElementById('h-search')||{value:''}).value.toLowerCase();
+  healthStatusFilter = (document.getElementById('h-status-filter')||{value:''}).value;
+  var filtered = healthData.filter(function(a){
+    if(healthFilter==='saas' && !a.isSaaS) return false;
+    if(healthFilter==='nonsaas' && a.isSaaS) return false;
+    if(healthFilter==='priority' && !a.isPriority) return false;
+    if(healthFilter==='churned' && !a.isChurned) return false;
+    if(healthSearch && !a.name.toLowerCase().includes(healthSearch) && !a.email.toLowerCase().includes(healthSearch)) return false;
+    if(healthStatusFilter && a.health !== healthStatusFilter) return false;
+    return true;
+  });
+  renderHealthTable(filtered);
+}
+
+function updateHealthCounts(){
+  var all = healthData.length;
+  var saas = healthData.filter(function(a){return a.isSaaS;}).length;
+  var nonsaas = healthData.filter(function(a){return !a.isSaaS;}).length;
+  var priority = healthData.filter(function(a){return a.isPriority;}).length;
+  var churned = healthData.filter(function(a){return a.isChurned;}).length;
+  var el = function(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; };
+  el('hc-all', all);
+  el('hc-saas', '0/'+saas);
+  el('hc-nonsaas', nonsaas+'/'+nonsaas);
+  el('hc-priority', priority+'/'+priority);
+  el('hc-churned', churned);
+}
+
+function progBarNew(score, max){
+  var pct = max > 0 ? Math.round((score/max)*100) : 0;
+  return '<span style="font-size:12px;font-weight:500;color:var(--text);margin-right:6px">'+score+'/'+max+'</span><span style="font-size:11px;color:var(--muted);margin-right:8px">'+score+'</span><span style="display:inline-block;width:90px;height:5px;background:var(--border);border-radius:999px;vertical-align:middle"><span style="display:block;width:'+pct+'%;height:5px;background:var(--accent);border-radius:999px"></span></span>';
+}
+
+function requestFeedback(id, name){
+  alert('Feedback request sent to: ' + name);
+}
+
+function exportCSV(){
+  var rows = [['Name','Email','Last Updated','Login Activity','Product Adoption','NPS','Health','Contacts']];
+  healthData.forEach(function(a){
+    rows.push([a.name, a.email, timeSince(a.lastUpdated||a.lastActivity), a.loginScore+'/'+a.loginMax, a.adoptionScore+'/'+a.adoptionMax, a.npsScore+'/'+a.npsMax, a.health, a.contacts]);
+  });
+  var csv = rows.map(function(r){return r.map(function(v){return '"'+String(v).replace(/"/g,'''')+'"';}).join(',');}).join('\n');
+  var a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download = 'health-report.csv';
+  a.click();
 }
 
 function renderHealthTable(data){
   if(!data.length){document.getElementById('health-table').innerHTML='<div class="loading">No accounts found.</div>';return;}
-  var html='<table><thead><tr><th>Account</th><th>Last Activity</th><th>Login Activity</th><th>Product Adoption</th><th>Health</th><th>Contacts</th></tr></thead><tbody>';
+  var html='<table>';
+  html+='<thead><tr>';
+  html+='<th><input type="checkbox" style="margin-right:8px"/>Sub-Account Name</th>';
+  html+='<th>Last Updated</th>';
+  html+='<th>Login Activity</th>';
+  html+='<th>Product Adoption</th>';
+  html+='<th>Feedback (NPS)</th>';
+  html+='<th>Health Status</th>';
+  html+='<th>Actions</th>';
+  html+='<th>Status</th>';
+  html+='</tr></thead><tbody>';
   data.forEach(function(a){
-    html+='<tr><td><strong>'+esc(a.name)+'</strong><div style="font-size:11px;color:var(--muted)">'+esc(a.email)+'</div></td>';
-    html+='<td>'+sdot(a.lastActivity)+timeSince(a.lastActivity)+'</td>';
-    html+='<td>'+progBar(a.loginActivity)+'</td>';
-    html+='<td>'+progBar(a.productAdoption)+'</td>';
+    html+='<tr>';
+    html+='<td><input type="checkbox" style="margin-right:10px"/><strong style="color:var(--text)">'+esc(a.name)+'</strong></td>';
+    html+='<td style="color:var(--muted);font-size:12px">'+timeSince(a.lastUpdated||a.lastActivity)+'</td>';
+    html+='<td>'+progBarNew(a.loginScore,a.loginMax)+'</td>';
+    html+='<td>'+progBarNew(a.adoptionScore,a.adoptionMax)+'</td>';
+    html+='<td>'+progBarNew(a.npsScore,a.npsMax)+'</td>';
     html+='<td>'+healthBadge(a.health)+'</td>';
-    html+='<td>'+a.contacts+'</td></tr>';
+    html+='<td><div style="display:flex;gap:6px;align-items:center">';
+    html+='<button onclick="requestFeedback(''+a.id+'',''+esc(a.name)+'')" title="Request Feedback" style="width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:13px">📩</button>';
+    html+='<button title="Settings" style="width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:13px">⚙️</button>';
+    html+='<button title="View" style="width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:13px">👁️</button>';
+    html+='</div></td>';
+    html+='<td><span style="width:10px;height:10px;border-radius:50%;background:'+(a.isChurned?'var(--red)':a.health==="Thriving"?'var(--green)':'var(--yellow)')+';display:inline-block"></span></td>';
+    html+='</tr>';
   });
   html+='</tbody></table>';
+  html+='<div style="padding:12px 16px;font-size:12px;color:var(--muted);border-top:1px solid var(--border)">Showing 1 to '+data.length+' of '+data.length+' entries</div>';
   document.getElementById('health-table').innerHTML=html;
-}
-
-function filterHealth(filter,btn){
-  document.querySelectorAll('.health-tab').forEach(function(b){b.classList.remove('active');});
-  btn.classList.add('active');
-  if(filter==='all'){renderHealthTable(healthData);return;}
-  renderHealthTable(healthData.filter(function(a){return a.health.toLowerCase().replace('-','')===filter;}));
 }
 
 async function loadStaff(){
@@ -526,7 +641,7 @@ function buildAdoptionChart(){
       labels:['Contacts','Conversations','Opportunities','Calendars','Marketing','Automation','Websites','Payments'],
       datasets:[{label:'Usage',data:[85,72,61,45,38,33,28,22],backgroundColor:['#6c63ff','#00d4aa','#ffd166','#60a5fa','#ff6b6b','#a78bfa','#34d399','#fb923c'],borderRadius:6,borderSkipped:false}]
     },
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#6b7280',font:{size:10}}},y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7280',font:{size:11}}}}}
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#8a92a6',font:{size:10}}},y:{grid:{color:'rgba(226,230,240,.8)'},ticks:{color:'#8a92a6',font:{size:11}}}}}
   });
 }
 
@@ -543,7 +658,7 @@ function buildStaffPerfChart(d){
         labels:staff.map(function(s){return s.name.split(' ')[0];}),
         datasets:[{label:'Contacts',data:staff.map(function(s){return s.contacts;}),backgroundColor:'rgba(108,99,255,0.8)',borderRadius:6,borderSkipped:false}]
       },
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#6b7280',font:{size:11}}},y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7280',font:{size:11}}}}}
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#8a92a6',font:{size:11}}},y:{grid:{color:'rgba(226,230,240,.8)'},ticks:{color:'#8a92a6',font:{size:11}}}}}
     });
   });
 }
