@@ -143,7 +143,7 @@ app.get("/", (req, res) => {
 app.get("/team", async (req, res) => {
   try {
     const response = await axios.get(
-      `${GHL_API}/users/search`,
+      `${GHL_API}/users/`
       {
         headers: {
           Authorization: `Bearer ${process.env.GHL_API_KEY}`,
