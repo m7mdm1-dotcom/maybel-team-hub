@@ -214,7 +214,13 @@ app.get("/team", async (req, res) => {
     const token = (process.env.GHL_API_KEY || "").trim();
     const locationId = (process.env.GHL_LOCATION_ID || "").trim();
 
-    const response = await axios.get(`${GHL_API}/users/`, {
+    const response = await axios.get(`${GHL_API}/users/?locationId=${locationId}`, {
+  headers: {
+    Authorization: `Bearer ${token}`,
+    Version: "2021-07-28",
+    Accept: "application/json"
+  }
+});
       headers: {
         Authorization: `Bearer ${token}`,
         Version: "2021-07-28",
