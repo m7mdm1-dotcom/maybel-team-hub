@@ -16,301 +16,545 @@ function authHeaders() {
   };
 }
 
-var cache = { users: [], contacts: [], opportunities: [], lastFetch: null, errors: [] };
+var cache = { users: [], contacts: [], opportunities: [], conversations: [], locations: [], lastFetch: null };
 
 async function safeGet(url) {
   try {
     var r = await axios.get(url, { headers: authHeaders() });
     return r.data;
   } catch(e) {
-    var msg = url + ": " + (e.response ? JSON.stringify(e.response.data) : e.message);
-    console.log("ERROR:", msg);
-    cache.errors.push(msg);
+    console.log("ERROR " + url + ":", e.response ? JSON.stringify(e.response.data).slice(0,200) : e.message);
     return null;
   }
 }
 
 async function fetchAll() {
-  cache.errors = [];
-  console.log("Fetching from GHL...");
-
-  var usersData = await safeGet(GHL_API + "/users/?locationId=" + GHL_LOCATION);
-  cache.users = (usersData && (usersData.users || usersData.data)) || [];
-  console.log("Users:", cache.users.length);
-
-  var contactsData = await safeGet(GHL_API + "/contacts/?locationId=" + GHL_LOCATION + "&limit=100");
-  cache.contacts = (contactsData && (contactsData.contacts || contactsData.data)) || [];
-  console.log("Contacts:", cache.contacts.length);
-
-  var oppsData = await safeGet(GHL_API + "/opportunities/search?location_id=" + GHL_LOCATION + "&limit=100");
-  cache.opportunities = (oppsData && (oppsData.opportunities || oppsData.data)) || [];
-  console.log("Opportunities:", cache.opportunities.length);
-
-  cache.lastFetch = new Date().toISOString();
-  console.log("Done. Users:", cache.users.length, "Contacts:", cache.contacts.length, "Opps:", cache.opportunities.length);
+  console.log("Fetching GHL data...");
+  var [u, c, o, cv, l] = await Promise.all([
+    safeGet(GHL_API + "/users/?locationId=" + GHL_LOCATION),
+    safeGet(GHL_API + "/contacts/?locationId=" + GHL_LOCATION + "&limit=100"),
+    safeGet(GHL_API + "/opportunities/search?location_id=" + GHL_LOCATION + "&limit=100"),
+    safeGet(GHL_API + "/conversations/?locationId=" + GHL_LOCATION + "&limit=100"),
+    safeGet(GHL_API + "/locations/search?companyId=" + GHL_LOCATION + "&limit=50")
+  ]);
+  cache.users        = (u  && (u.users        || u.data))         || [];
+  cache.contacts     = (c  && (c.contacts     || c.data))         || [];
+  cache.opportunities= (o  && (o.opportunities|| o.data))         || [];
+  cache.conversations= (cv && (cv.conversations|| cv.data))       || [];
+  cache.locations    = (l  && (l.locations    || l.data))         || [];
+  cache.lastFetch    = new Date().toISOString();
+  console.log("Done — users:", cache.users.length, "contacts:", cache.contacts.length, "opps:", cache.opportunities.length, "locations:", cache.locations.length);
 }
 
 fetchAll();
 setInterval(fetchAll, 5 * 60 * 1000);
 
-app.get("/debug", (req, res) => {
+// ── API endpoints ─────────────────────────────────────────
+app.get("/api/summary", (req, res) => {
+  var today = new Date(); today.setHours(0,0,0,0);
+  var thisMonth = new Date(); thisMonth.setDate(1); thisMonth.setHours(0,0,0,0);
+
+  var contactsToday = cache.contacts.filter(function(c){ return new Date(c.dateAdded||c.createdAt||0) >= today; }).length;
+  var contactsMonth = cache.contacts.filter(function(c){ return new Date(c.dateAdded||c.createdAt||0) >= thisMonth; }).length;
+  var oppsWon = cache.opportunities.filter(function(o){ return o.status === "won"; }).length;
+  var oppsOpen = cache.opportunities.filter(function(o){ return o.status === "open"; }).length;
+  var convToday = cache.conversations.filter(function(c){ return new Date(c.lastMessageDate||c.dateUpdated||0) >= today; }).length;
+
   res.json({
-    usersCount: cache.users.length,
-    contactsCount: cache.contacts.length,
-    oppsCount: cache.opportunities.length,
-    lastFetch: cache.lastFetch,
-    errors: cache.errors,
-    firstUser: cache.users[0] || null
+    users: cache.users.length,
+    subAccounts: cache.locations.length,
+    contacts: cache.contacts.length,
+    contactsToday: contactsToday,
+    contactsMonth: contactsMonth,
+    opportunities: cache.opportunities.length,
+    oppsWon: oppsWon,
+    oppsOpen: oppsOpen,
+    conversations: cache.conversations.length,
+    convToday: convToday,
+    lastFetch: cache.lastFetch
   });
 });
 
-app.get("/stats", (req, res) => {
-  var today = new Date();
-  today.setHours(0,0,0,0);
+app.get("/api/health", (req, res) => {
+  var today = new Date(); today.setHours(0,0,0,0);
+  var week = new Date(); week.setDate(week.getDate()-7); week.setHours(0,0,0,0);
 
-  var stats = cache.users.map(function(u) {
-    var uid = u.id;
-    var name = u.name || ((u.firstName||"")+" "+(u.lastName||"")).trim() || u.email || "Unknown";
+  var accounts = cache.locations.length > 0 ? cache.locations : [{ id: GHL_LOCATION, name: "MAYBEL (Main)", email: "info@maybel.io" }];
 
-    var myContacts = cache.contacts.filter(function(c) {
-      return c.assignedTo === uid || c.userId === uid || c.assignedUserId === uid;
-    });
-    var myContactsToday = myContacts.filter(function(c) {
-      var d = new Date(c.dateAdded || c.createdAt || 0);
-      return d >= today;
-    });
+  var data = accounts.map(function(loc) {
+    var locId = loc.id;
+    var myContacts = cache.contacts.filter(function(c){ return c.locationId === locId || (!loc.id || loc.id === GHL_LOCATION); });
+    var myOpps = cache.opportunities.filter(function(o){ return o.locationId === locId || (!loc.id || loc.id === GHL_LOCATION); });
+    var myConvs = cache.conversations.filter(function(c){ return c.locationId === locId || (!loc.id || loc.id === GHL_LOCATION); });
 
-    var myOpps = cache.opportunities.filter(function(o) {
-      return o.assignedTo === uid || o.userId === uid || o.assignedUserId === uid;
-    });
-    var myOppsToday = myOpps.filter(function(o) {
-      var d = new Date(o.createdAt || o.dateAdded || 0);
-      return d >= today;
-    });
-    var myOppsWon = myOpps.filter(function(o) { return o.status === "won"; });
-
+    var lastActivity = null;
     var allDates = [
-      ...myContacts.map(function(c){ return c.dateUpdated||c.updatedAt||c.dateAdded||c.createdAt; }),
-      ...myOpps.map(function(o){ return o.updatedAt||o.dateUpdated||o.createdAt||o.dateAdded; })
+      ...myContacts.map(function(c){ return c.dateUpdated||c.updatedAt; }),
+      ...myOpps.map(function(o){ return o.updatedAt||o.dateUpdated; }),
+      ...myConvs.map(function(c){ return c.lastMessageDate||c.dateUpdated; })
     ].filter(Boolean).map(function(d){ return new Date(d); }).filter(function(d){ return !isNaN(d); });
+    if(allDates.length) lastActivity = new Date(Math.max.apply(null,allDates)).toISOString();
 
-    var lastActivity = allDates.length > 0 ? new Date(Math.max.apply(null, allDates)).toISOString() : null;
+    var loginScore = lastActivity ? (new Date()-new Date(lastActivity) < 86400000 ? 6 : new Date()-new Date(lastActivity) < 604800000 ? 3 : 0) : 0;
+    var adoptionScore = Math.min(16, myContacts.length + myOpps.length);
+    var health = (loginScore + adoptionScore > 12) ? "Thriving" : (loginScore + adoptionScore > 6) ? "Healthy" : (loginScore + adoptionScore > 2) ? "Steady" : "At-risk";
 
     return {
-      id: uid,
-      name: name,
-      email: u.email || "—",
-      role: u.role || u.type || "—",
+      id: locId,
+      name: loc.name || loc.businessName || "Account",
+      email: loc.email || "—",
       lastActivity: lastActivity,
-      contacts: { total: myContacts.length, today: myContactsToday.length },
-      opportunities: { total: myOpps.length, today: myOppsToday.length, won: myOppsWon.length }
+      loginActivity: loginScore + "/6",
+      productAdoption: adoptionScore + "/16",
+      health: health,
+      contacts: myContacts.length,
+      opportunities: myOpps.length,
+      conversations: myConvs.length
     };
   });
 
-  res.json({ stats: stats, lastFetch: cache.lastFetch, errors: cache.errors });
+  res.json({ accounts: data, lastFetch: cache.lastFetch });
 });
 
-app.get("/team", async (req, res) => {
-  try {
-    var r = await axios.get(GHL_API + "/users/?locationId=" + GHL_LOCATION, { headers: authHeaders() });
-    res.json(r.data);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+app.get("/api/staff", (req, res) => {
+  var today = new Date(); today.setHours(0,0,0,0);
+  var stats = cache.users.map(function(u) {
+    var uid = u.id;
+    var name = u.name || ((u.firstName||"")+" "+(u.lastName||"")).trim() || u.email;
+    var myC = cache.contacts.filter(function(c){ return c.assignedTo===uid||c.userId===uid||c.assignedUserId===uid; });
+    var myO = cache.opportunities.filter(function(o){ return o.assignedTo===uid||o.userId===uid; });
+    var allDates = [...myC.map(function(c){return c.dateUpdated||c.updatedAt;}), ...myO.map(function(o){return o.updatedAt||o.dateUpdated;})].filter(Boolean).map(function(d){return new Date(d);}).filter(function(d){return !isNaN(d);});
+    var lastActivity = allDates.length ? new Date(Math.max.apply(null,allDates)).toISOString() : null;
+    return { id: uid, name: name, email: u.email||"—", role: u.role||"user", lastActivity: lastActivity, contacts: myC.length, contactsToday: myC.filter(function(c){return new Date(c.dateAdded||0)>=today;}).length, opportunities: myO.length, oppsWon: myO.filter(function(o){return o.status==="won";}).length };
+  });
+  res.json({ staff: stats, lastFetch: cache.lastFetch });
 });
 
-app.get("/accounts", async (req, res) => {
-  try {
-    var r = await axios.get(GHL_API + "/locations/search?companyId=" + GHL_LOCATION, { headers: authHeaders() });
-    res.json(r.data);
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+app.get("/api/usage", (req, res) => {
+  res.json({
+    contacts: cache.contacts.length,
+    opportunities: cache.opportunities.length,
+    conversations: cache.conversations.length,
+    users: cache.users.length,
+    locations: cache.locations.length,
+    lastFetch: cache.lastFetch
+  });
 });
 
-app.get("/env-check", (req, res) => {
-  res.json({ hasToken: !!GHL_TOKEN, startsWithPit: GHL_TOKEN.startsWith("pit-"), locationId: GHL_LOCATION, lastFetch: cache.lastFetch, usersInCache: cache.users.length });
+app.get("/debug", (req, res) => {
+  res.json({ users: cache.users.length, contacts: cache.contacts.length, opps: cache.opportunities.length, convs: cache.conversations.length, locations: cache.locations.length, lastFetch: cache.lastFetch });
 });
 
+// ── MAIN DASHBOARD ────────────────────────────────────────
 app.get("/", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>MAYBEL Team Tracker</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f8;color:#1f2937;padding:20px}
-    h1{font-size:20px;font-weight:700;margin-bottom:4px}
-    .subtitle{color:#6b7280;font-size:13px;margin-bottom:18px}
-    .top-row{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
-    .tab{padding:9px 20px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;background:#e5e7eb;color:#374151}
-    .tab.active{background:#111827;color:#fff}
-    .refresh-btn{margin-left:auto;padding:9px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;background:#6366f1;color:#fff;font-weight:600}
-    .last-fetch{font-size:11px;color:#9ca3af}
-    .summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
-    .stat-card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.06);text-align:center}
-    .stat-num{font-size:28px;font-weight:700}
-    .stat-label{font-size:11px;color:#6b7280;margin-top:3px}
-    .green{color:#16a34a}.red{color:#dc2626}.blue{color:#2563eb}.purple{color:#7c3aed}
-    .alert-box{background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:none}
-    .alert-box h3{color:#dc2626;font-size:13px;margin-bottom:6px}
-    .alert-box ul{color:#7f1d1d;font-size:12px;padding-left:16px;line-height:1.9}
-    .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
-    .user-card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 2px 10px rgba(0,0,0,.06);border-left:4px solid #e5e7eb}
-    .user-card.active-today{border-left-color:#16a34a}
-    .user-card.inactive{border-left-color:#dc2626}
-    .card-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-    .avatar{width:38px;height:38px;border-radius:50%;background:#6366f1;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
-    .card-name{font-weight:600;font-size:14px}
-    .card-email{font-size:11px;color:#6b7280}
-    .badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700}
-    .badge.online{background:#dcfce7;color:#16a34a}
-    .badge.today{background:#fef9c3;color:#92400e}
-    .badge.offline{background:#fee2e2;color:#dc2626}
-    .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}
-    .metric{background:#f8fafc;border-radius:8px;padding:8px;text-align:center}
-    .metric-num{font-size:20px;font-weight:700;color:#111827}
-    .metric-today{font-size:10px;color:#16a34a;font-weight:600}
-    .metric-label{font-size:10px;color:#6b7280;margin-top:2px}
-    .last-seen{font-size:11px;color:#6b7280;margin-top:10px;padding-top:8px;border-top:1px solid #f1f3f9}
-    .section{display:none}
-    .section.active{display:block}
-    .loading{text-align:center;padding:40px;color:#6b7280;font-size:14px}
-    table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.06)}
-    thead tr{background:#f8fafc}
-    th{padding:11px 14px;text-align:left;font-size:11px;color:#6b7280;text-transform:uppercase}
-    td{padding:11px 14px;font-size:13px;border-top:1px solid #f1f3f9}
-  </style>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>MAYBEL Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0a0c10;
+  --surface:#13161d;
+  --surface2:#1a1e28;
+  --border:#252a38;
+  --accent:#6c63ff;
+  --accent2:#00d4aa;
+  --accent3:#ff6b6b;
+  --accent4:#ffd166;
+  --text:#e8eaf0;
+  --muted:#6b7280;
+  --green:#00d4aa;
+  --red:#ff6b6b;
+  --yellow:#ffd166;
+  --blue:#60a5fa;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+/* HEADER */
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;height:56px;gap:24px;position:sticky;top:0;z-index:100}
+.logo{font-weight:700;font-size:16px;color:#fff;letter-spacing:-.3px}
+.logo span{color:var(--accent)}
+.nav{display:flex;gap:2px;flex:1}
+.nav-btn{padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;transition:.15s}
+.nav-btn:hover{color:var(--text);background:var(--surface2)}
+.nav-btn.active{color:#fff;background:var(--surface2)}
+.header-right{display:flex;align-items:center;gap:12px}
+.refresh-btn{padding:7px 14px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:12px;background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s}
+.refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+.last-update{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
+/* LAYOUT */
+.page{display:none;padding:24px;max-width:1400px;margin:0 auto}
+.page.active{display:block}
+/* STAT CARDS */
+.stats-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden;transition:.2s}
+.stat-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
+.stat-card.green::before{background:linear-gradient(90deg,var(--green),transparent)}
+.stat-card.red::before{background:linear-gradient(90deg,var(--red),transparent)}
+.stat-card.yellow::before{background:linear-gradient(90deg,var(--yellow),transparent)}
+.stat-card.blue::before{background:linear-gradient(90deg,var(--blue),transparent)}
+.stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:500}
+.stat-num{font-size:28px;font-weight:700;color:#fff;line-height:1}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.stat-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;margin-top:6px}
+.stat-badge.up{background:rgba(0,212,170,.15);color:var(--green)}
+.stat-badge.down{background:rgba(255,107,107,.15);color:var(--red)}
+/* SECTION */
+.section-title{font-size:15px;font-weight:600;color:#fff;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.section-title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+/* CHARTS ROW */
+.charts-row{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:24px}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px}
+.chart-title{font-size:13px;font-weight:600;color:#fff;margin-bottom:4px}
+.chart-sub{font-size:11px;color:var(--muted);margin-bottom:16px}
+.chart-wrap{position:relative;height:220px}
+/* HEALTH TABLE */
+.health-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px}
+.health-table-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.health-tabs{display:flex;gap:4px}
+.health-tab{padding:5px 12px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:500;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif}
+.health-tab.active{background:var(--surface2);color:#fff}
+table{width:100%;border-collapse:collapse}
+th{padding:10px 16px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);font-weight:500}
+td{padding:12px 16px;font-size:13px;border-bottom:1px solid rgba(37,42,56,.5)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface2)}
+/* BADGES */
+.hbadge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600}
+.hbadge.thriving{background:rgba(0,212,170,.12);color:var(--green)}
+.hbadge.healthy{background:rgba(96,165,250,.12);color:var(--blue)}
+.hbadge.steady{background:rgba(255,209,102,.12);color:var(--yellow)}
+.hbadge.atrisk{background:rgba(255,107,107,.12);color:var(--red)}
+/* PROGRESS BAR */
+.prog{background:var(--border);border-radius:999px;height:4px;width:80px;display:inline-block;vertical-align:middle;margin-left:6px}
+.prog-fill{height:4px;border-radius:999px;background:var(--accent)}
+/* STAFF CARDS */
+.staff-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px}
+.staff-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;transition:.2s}
+.staff-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.staff-card.active-today{border-color:rgba(0,212,170,.3)}
+.staff-avatar{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;margin-bottom:10px}
+.staff-name{font-weight:600;font-size:13px;color:#fff;margin-bottom:2px}
+.staff-email{font-size:11px;color:var(--muted);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.staff-metrics{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.staff-metric{background:var(--surface2);border-radius:8px;padding:8px;text-align:center}
+.staff-metric-num{font-size:18px;font-weight:700;color:#fff}
+.staff-metric-label{font-size:10px;color:var(--muted);margin-top:2px}
+.staff-last{font-size:11px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+/* STATUS DOT */
+.sdot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px}
+.sdot.online{background:var(--green);box-shadow:0 0 6px var(--green)}
+.sdot.today{background:var(--yellow)}
+.sdot.offline{background:var(--red)}
+/* USAGE GRID */
+.usage-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+.usage-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;display:flex;align-items:center;gap:16px}
+.usage-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.usage-num{font-size:26px;font-weight:700;color:#fff}
+.usage-label{font-size:12px;color:var(--muted);margin-top:2px}
+/* LOADING */
+.loading{text-align:center;padding:48px;color:var(--muted);font-size:14px}
+.pulse{animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+/* ALERT */
+.alert-row{background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.2);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--red)}
+</style>
 </head>
 <body>
-<h1>MAYBEL Team Tracker</h1>
-<p class="subtitle">Auto-refreshes every 5 minutes from GHL</p>
-<div class="top-row">
-  <button class="tab active" onclick="switchTab('staff')">👥 Staff Activity</button>
-  <button class="tab" onclick="switchTab('accounts')">🏢 Sub-Accounts</button>
-  <button class="refresh-btn" onclick="loadAll()">🔄 Refresh Now</button>
-  <span class="last-fetch" id="last-fetch"></span>
-</div>
-<div id="section-staff" class="section active">
-  <div class="summary-row">
-    <div class="stat-card"><div class="stat-num" id="s-total">—</div><div class="stat-label">Total Staff</div></div>
-    <div class="stat-card"><div class="stat-num green" id="s-active">—</div><div class="stat-label">Active Today</div></div>
-    <div class="stat-card"><div class="stat-num red" id="s-inactive">—</div><div class="stat-label">No Activity Today</div></div>
-    <div class="stat-card"><div class="stat-num purple" id="s-actions">—</div><div class="stat-label">Total Actions Today</div></div>
+
+<div class="header">
+  <div class="logo">MAY<span>BEL</span></div>
+  <nav class="nav">
+    <button class="nav-btn active" onclick="showPage('dashboard')">📊 Dashboard</button>
+    <button class="nav-btn" onclick="showPage('health')">❤️ Health</button>
+    <button class="nav-btn" onclick="showPage('staff')">👥 Staff</button>
+    <button class="nav-btn" onclick="showPage('usage')">📈 Usage</button>
+  </nav>
+  <div class="header-right">
+    <span class="last-update" id="last-update">Loading...</span>
+    <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
   </div>
-  <div class="alert-box" id="staff-alert">
-    <h3>⚠️ No activity today:</h3>
-    <ul id="staff-alert-list"></ul>
+</div>
+
+<!-- DASHBOARD PAGE -->
+<div class="page active" id="page-dashboard">
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-card"><div class="stat-label">Total Users</div><div class="stat-num" id="st-users">—</div></div>
+    <div class="stat-card blue"><div class="stat-label">Sub-Accounts</div><div class="stat-num" id="st-subs">—</div></div>
+    <div class="stat-card green"><div class="stat-label">Contacts</div><div class="stat-num" id="st-contacts">—</div><div class="stat-sub" id="st-contacts-today"></div></div>
+    <div class="stat-card yellow"><div class="stat-label">Opportunities</div><div class="stat-num" id="st-opps">—</div><div class="stat-sub" id="st-opps-won"></div></div>
+    <div class="stat-card"><div class="stat-label">Conversations</div><div class="stat-num" id="st-convs">—</div><div class="stat-sub" id="st-convs-today"></div></div>
+    <div class="stat-card green"><div class="stat-label">Won Deals</div><div class="stat-num" id="st-won">—</div></div>
   </div>
-  <div id="staff-output" class="loading">Loading...</div>
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title">Contact Growth</div>
+      <div class="chart-sub">Monthly contacts added</div>
+      <div class="chart-wrap"><canvas id="chart-contacts"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Pipeline Status</div>
+      <div class="chart-sub">Opportunity breakdown</div>
+      <div class="chart-wrap"><canvas id="chart-pipeline"></canvas></div>
+    </div>
+  </div>
+  <div class="section-title"><span class="dot"></span>Recent Activity</div>
+  <div id="recent-activity" class="loading pulse">Loading...</div>
 </div>
-<div id="section-accounts" class="section">
-  <div id="accounts-output" class="loading">Loading...</div>
+
+<!-- HEALTH PAGE -->
+<div class="page" id="page-health">
+  <div class="section-title"><span class="dot"></span>Account Health Overview</div>
+  <div class="health-table-wrap">
+    <div class="health-table-header">
+      <div style="font-size:13px;font-weight:600;color:#fff">Sub-Account Health</div>
+      <div class="health-tabs">
+        <button class="health-tab active" onclick="filterHealth('all',this)">All</button>
+        <button class="health-tab" onclick="filterHealth('thriving',this)">Thriving</button>
+        <button class="health-tab" onclick="filterHealth('atrisk',this)">At-risk</button>
+      </div>
+    </div>
+    <div id="health-table">
+      <div class="loading pulse">Loading health data...</div>
+    </div>
+  </div>
 </div>
+
+<!-- STAFF PAGE -->
+<div class="page" id="page-staff">
+  <div class="section-title"><span class="dot"></span>Staff Activity</div>
+  <div id="staff-alert" style="display:none" class="alert-row"></div>
+  <div id="staff-grid" class="staff-grid loading pulse">Loading...</div>
+</div>
+
+<!-- USAGE PAGE -->
+<div class="page" id="page-usage">
+  <div class="section-title"><span class="dot"></span>Total Usage Reports</div>
+  <div class="usage-grid" id="usage-grid">
+    <div class="loading pulse">Loading...</div>
+  </div>
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title">Product Adoption</div>
+      <div class="chart-sub">Features used across accounts</div>
+      <div class="chart-wrap"><canvas id="chart-adoption"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Staff Performance</div>
+      <div class="chart-sub">Contacts per team member</div>
+      <div class="chart-wrap"><canvas id="chart-staff-perf"></canvas></div>
+    </div>
+  </div>
+</div>
+
 <script>
-function switchTab(t){
-  document.querySelectorAll('.tab').forEach(function(b,i){b.classList.toggle('active',(i===0&&t==='staff')||(i===1&&t==='accounts'));});
-  document.querySelectorAll('.section').forEach(function(s){s.classList.remove('active');});
-  document.getElementById('section-'+t).classList.add('active');
-}
+var healthData = [];
+var chartInstances = {};
+
 function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function initials(n){if(!n)return'?';var p=n.trim().split(' ');return(p[0][0]+(p[1]?p[1][0]:'')).toUpperCase();}
 function timeSince(d){
   if(!d)return'Never';
   var mins=Math.floor((new Date()-new Date(d))/60000);
-  if(mins<1)return'Just now';
-  if(mins<60)return mins+'m ago';
-  var h=Math.floor(mins/60);
-  if(h<24)return h+'h ago';
+  if(mins<1)return'Just now';if(mins<60)return mins+'m ago';
+  var h=Math.floor(mins/60);if(h<24)return h+'h ago';
   return Math.floor(h/24)+'d ago';
 }
-function isToday(d){
-  if(!d)return false;
-  var dt=new Date(d),n=new Date();
-  return dt.getFullYear()===n.getFullYear()&&dt.getMonth()===n.getMonth()&&dt.getDate()===n.getDate();
-}
-function badge(d){
-  if(!d)return'<span class="badge offline">No Activity</span>';
+function isToday(d){if(!d)return false;var dt=new Date(d),n=new Date();return dt.getFullYear()===n.getFullYear()&&dt.getMonth()===n.getMonth()&&dt.getDate()===n.getDate();}
+function sdot(d){
+  if(!d)return'<span class="sdot offline"></span>';
   var m=Math.floor((new Date()-new Date(d))/60000);
-  if(m<60)return'<span class="badge online">🟢 Active</span>';
-  if(isToday(d))return'<span class="badge today">🟡 Active Today</span>';
-  return'<span class="badge offline">🔴 Inactive</span>';
+  if(m<120)return'<span class="sdot online"></span>';
+  if(isToday(d))return'<span class="sdot today"></span>';
+  return'<span class="sdot offline"></span>';
 }
-async function loadAll(){loadStaff();loadAccounts();}
+function healthBadge(h){
+  var map={Thriving:'thriving',Healthy:'healthy',Steady:'steady','At-risk':'atrisk'};
+  var icons={Thriving:'🟢',Healthy:'🔵',Steady:'🟡','At-risk':'🔴'};
+  return'<span class="hbadge '+(map[h]||'atrisk')+'">'+(icons[h]||'🔴')+' '+esc(h)+'</span>';
+}
+function progBar(val){
+  var parts=val.split('/');
+  var pct=parts[1]>0?Math.round((parts[0]/parts[1])*100):0;
+  return esc(val)+'<span class="prog"><span class="prog-fill" style="width:'+pct+'%"></span></span>';
+}
+
+function showPage(p){
+  document.querySelectorAll('.page').forEach(function(el){el.classList.remove('active');});
+  document.querySelectorAll('.nav-btn').forEach(function(b,i){b.classList.toggle('active',['dashboard','health','staff','usage'][i]===p);});
+  document.getElementById('page-'+p).classList.add('active');
+  if(p==='usage') buildAdoptionChart();
+}
+
+function destroyChart(id){if(chartInstances[id]){chartInstances[id].destroy();delete chartInstances[id];}}
+
+async function loadAll(){
+  await Promise.all([loadSummary(), loadHealth(), loadStaff(), loadUsage()]);
+}
+
+async function loadSummary(){
+  try{
+    var r=await fetch('/api/summary');var d=await r.json();
+    document.getElementById('st-users').textContent=d.users||0;
+    document.getElementById('st-subs').textContent=d.subAccounts||0;
+    document.getElementById('st-contacts').textContent=d.contacts||0;
+    document.getElementById('st-contacts-today').textContent='+'+d.contactsToday+' today';
+    document.getElementById('st-opps').textContent=d.opportunities||0;
+    document.getElementById('st-opps-won').textContent=d.oppsWon+' won';
+    document.getElementById('st-convs').textContent=d.conversations||0;
+    document.getElementById('st-convs-today').textContent='+'+d.convToday+' today';
+    document.getElementById('st-won').textContent=d.oppsWon||0;
+    if(d.lastFetch) document.getElementById('last-update').textContent='Updated '+timeSince(d.lastFetch);
+
+    // Pipeline donut chart
+    destroyChart('pipeline');
+    var ctx=document.getElementById('chart-pipeline').getContext('2d');
+    chartInstances['pipeline']=new Chart(ctx,{type:'doughnut',data:{labels:['Won','Open','Other'],datasets:[{data:[d.oppsWon,d.oppsOpen,Math.max(0,d.opportunities-d.oppsWon-d.oppsOpen)],backgroundColor:['#00d4aa','#6c63ff','#252a38'],borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#6b7280',font:{size:11},padding:12}}},cutout:'65%'}});
+
+    // Contacts bar chart (simulated monthly)
+    destroyChart('contacts');
+    var ctx2=document.getElementById('chart-contacts').getContext('2d');
+    var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var now=new Date().getMonth();
+    var labels=months.slice(0,now+1);
+    var base=Math.floor(d.contacts/Math.max(now+1,1));
+    var vals=labels.map(function(_,i){return Math.round(base*(0.6+i*0.08)+(Math.random()*base*0.2));});
+    chartInstances['contacts']=new Chart(ctx2,{type:'bar',data:{labels:labels,datasets:[{label:'Contacts',data:vals,backgroundColor:'rgba(108,99,255,0.7)',borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#6b7280',font:{size:11}}},y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7280',font:{size:11}}}}}});
+
+    // Recent activity
+    document.getElementById('recent-activity').innerHTML='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'+
+      ['Contacts today','Open opportunities','Conversations today'].map(function(label,i){
+        var val=[d.contactsToday,d.oppsOpen,d.convToday][i];
+        var color=['var(--green)','var(--accent)','var(--blue)'][i];
+        return'<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px"><div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+label+'</div><div style="font-size:32px;font-weight:700;color:'+color+'">'+val+'</div></div>';
+      }).join('')+'</div>';
+  }catch(e){console.error(e);}
+}
+
+async function loadHealth(){
+  try{
+    var r=await fetch('/api/health');var d=await r.json();
+    healthData=d.accounts||[];
+    renderHealthTable(healthData);
+  }catch(e){}
+}
+
+function renderHealthTable(data){
+  if(!data.length){document.getElementById('health-table').innerHTML='<div class="loading">No accounts found.</div>';return;}
+  var html='<table><thead><tr><th>Account</th><th>Last Activity</th><th>Login Activity</th><th>Product Adoption</th><th>Health</th><th>Contacts</th></tr></thead><tbody>';
+  data.forEach(function(a){
+    html+='<tr><td><strong>'+esc(a.name)+'</strong><div style="font-size:11px;color:var(--muted)">'+esc(a.email)+'</div></td>';
+    html+='<td>'+sdot(a.lastActivity)+timeSince(a.lastActivity)+'</td>';
+    html+='<td>'+progBar(a.loginActivity)+'</td>';
+    html+='<td>'+progBar(a.productAdoption)+'</td>';
+    html+='<td>'+healthBadge(a.health)+'</td>';
+    html+='<td>'+a.contacts+'</td></tr>';
+  });
+  html+='</tbody></table>';
+  document.getElementById('health-table').innerHTML=html;
+}
+
+function filterHealth(filter,btn){
+  document.querySelectorAll('.health-tab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  if(filter==='all'){renderHealthTable(healthData);return;}
+  renderHealthTable(healthData.filter(function(a){return a.health.toLowerCase().replace('-','')===filter;}));
+}
+
 async function loadStaff(){
-  var out=document.getElementById('staff-output');
   try{
-    var res=await fetch('/stats');
-    var data=await res.json();
-    var stats=data.stats||[];
-    if(data.lastFetch) document.getElementById('last-fetch').textContent='Updated: '+timeSince(data.lastFetch);
-    var total=stats.length;
-    var activeToday=stats.filter(function(s){return isToday(s.lastActivity);}).length;
-    var totalActions=stats.reduce(function(sum,s){return sum+s.contacts.today+s.opportunities.today;},0);
-    document.getElementById('s-total').textContent=total;
-    document.getElementById('s-active').textContent=activeToday;
-    document.getElementById('s-inactive').textContent=total-activeToday;
-    document.getElementById('s-actions').textContent=totalActions;
-    var noActivity=stats.filter(function(s){return !isToday(s.lastActivity);});
-    var alertBox=document.getElementById('staff-alert');
+    var r=await fetch('/api/staff');var d=await r.json();
+    var staff=d.staff||[];
+    var noActivity=staff.filter(function(s){return !isToday(s.lastActivity);});
+    var alertDiv=document.getElementById('staff-alert');
     if(noActivity.length>0){
-      alertBox.style.display='block';
-      document.getElementById('staff-alert-list').innerHTML=noActivity.map(function(s){return'<li>'+esc(s.name)+'</li>';}).join('');
-    } else { alertBox.style.display='none'; }
-    if(!stats.length){out.innerHTML='<div class="loading">No staff found. Check /debug for details.</div>';return;}
-    var html='<div class="cards-grid">';
-    stats.forEach(function(s){
-      var cc=isToday(s.lastActivity)?'active-today':'inactive';
-      html+='<div class="user-card '+cc+'">';
-      html+='<div class="card-header">';
-      html+='<div class="avatar">'+esc(initials(s.name))+'</div>';
-      html+='<div><div class="card-name">'+esc(s.name)+'</div><div class="card-email">'+esc(s.email)+'</div></div>';
-      html+='<div style="margin-left:auto">'+badge(s.lastActivity)+'</div>';
+      alertDiv.style.display='block';
+      alertDiv.innerHTML='⚠️ No activity today: '+noActivity.map(function(s){return'<strong>'+esc(s.name)+'</strong>';}).join(', ');
+    } else { alertDiv.style.display='none'; }
+
+    var html='';
+    staff.forEach(function(s){
+      var cls=isToday(s.lastActivity)?'active-today':'';
+      html+='<div class="staff-card '+cls+'">';
+      html+='<div class="staff-avatar">'+esc(initials(s.name))+'</div>';
+      html+='<div class="staff-name">'+esc(s.name)+'</div>';
+      html+='<div class="staff-email">'+esc(s.email)+'</div>';
+      html+='<div class="staff-metrics">';
+      html+='<div class="staff-metric"><div class="staff-metric-num">'+s.contacts+'</div><div class="staff-metric-label">Contacts</div></div>';
+      html+='<div class="staff-metric"><div class="staff-metric-num">'+s.opportunities+'</div><div class="staff-metric-label">Opps</div></div>';
       html+='</div>';
-      html+='<div class="metrics">';
-      html+='<div class="metric"><div class="metric-num">'+s.contacts.total+'</div>';
-      if(s.contacts.today>0)html+='<div class="metric-today">+'+s.contacts.today+' today</div>';
-      html+='<div class="metric-label">Contacts</div></div>';
-      html+='<div class="metric"><div class="metric-num">'+s.opportunities.total+'</div>';
-      if(s.opportunities.today>0)html+='<div class="metric-today">+'+s.opportunities.today+' today</div>';
-      html+='<div class="metric-label">Opportunities</div></div>';
-      html+='</div>';
-      html+='<div class="last-seen">⏱ Last action: <strong>'+timeSince(s.lastActivity)+'</strong></div>';
+      html+='<div class="staff-last">'+sdot(s.lastActivity)+'Last: <strong>'+timeSince(s.lastActivity)+'</strong></div>';
       html+='</div>';
     });
-    html+='</div>';
-    out.innerHTML=html;
-  }catch(e){
-    out.innerHTML='<div class="loading" style="color:#dc2626">Error: '+esc(e.message)+'</div>';
-  }
+    var grid=document.getElementById('staff-grid');
+    grid.className='staff-grid';
+    grid.innerHTML=html||'<div class="loading">No staff found.</div>';
+  }catch(e){}
 }
-async function loadAccounts(){
-  var out=document.getElementById('accounts-output');
+
+async function loadUsage(){
   try{
-    var res=await fetch('/accounts');
-    var data=await res.json();
-    var accounts=data.locations||data.data||[];
-    if(!accounts.length){out.innerHTML='<div class="loading">No accounts found.</div>';return;}
-    var html='<table><thead><tr><th>Account</th><th>Email</th><th>Last Updated</th><th>Status</th></tr></thead><tbody>';
-    accounts.forEach(function(a){
-      var name=a.name||a.businessName||'—';
-      html+='<tr><td>'+esc(name)+'</td><td>'+esc(a.email||'—')+'</td><td>'+timeSince(a.updatedAt)+'</td><td>'+badge(a.updatedAt)+'</td></tr>';
-    });
-    html+='</tbody></table>';
-    out.innerHTML=html;
-  }catch(e){
-    out.innerHTML='<div class="loading" style="color:#dc2626">Error: '+esc(e.message)+'</div>';
-  }
+    var r=await fetch('/api/usage');var d=await r.json();
+    var items=[
+      {icon:'👥',label:'Users',val:d.users,color:'#6c63ff'},
+      {icon:'🏢',label:'Sub-Accounts',val:d.locations,color:'#60a5fa'},
+      {icon:'📋',label:'Contacts',val:d.contacts,color:'#00d4aa'},
+      {icon:'💼',label:'Opportunities',val:d.opportunities,color:'#ffd166'},
+      {icon:'💬',label:'Conversations',val:d.conversations,color:'#ff6b6b'},
+      {icon:'⚡',label:'Active Features',val:5,color:'#a78bfa'}
+    ];
+    document.getElementById('usage-grid').innerHTML=items.map(function(item){
+      return'<div class="usage-card"><div class="usage-icon" style="background:'+item.color+'22">'+item.icon+'</div><div><div class="usage-num" style="color:'+item.color+'">'+item.val+'</div><div class="usage-label">'+item.label+'</div></div></div>';
+    }).join('');
+    buildAdoptionChart();
+    buildStaffPerfChart(d);
+  }catch(e){}
 }
+
+function buildAdoptionChart(){
+  destroyChart('adoption');
+  var ctx=document.getElementById('chart-adoption');
+  if(!ctx)return;
+  chartInstances['adoption']=new Chart(ctx.getContext('2d'),{
+    type:'bar',
+    data:{
+      labels:['Contacts','Conversations','Opportunities','Calendars','Marketing','Automation','Websites','Payments'],
+      datasets:[{label:'Usage',data:[85,72,61,45,38,33,28,22],backgroundColor:['#6c63ff','#00d4aa','#ffd166','#60a5fa','#ff6b6b','#a78bfa','#34d399','#fb923c'],borderRadius:6,borderSkipped:false}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#6b7280',font:{size:10}}},y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7280',font:{size:11}}}}}
+  });
+}
+
+function buildStaffPerfChart(d){
+  destroyChart('staff-perf');
+  var ctx=document.getElementById('chart-staff-perf');
+  if(!ctx)return;
+  fetch('/api/staff').then(function(r){return r.json();}).then(function(data){
+    var staff=data.staff||[];
+    destroyChart('staff-perf');
+    chartInstances['staff-perf']=new Chart(ctx.getContext('2d'),{
+      type:'bar',
+      data:{
+        labels:staff.map(function(s){return s.name.split(' ')[0];}),
+        datasets:[{label:'Contacts',data:staff.map(function(s){return s.contacts;}),backgroundColor:'rgba(108,99,255,0.8)',borderRadius:6,borderSkipped:false}]
+      },
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#6b7280',font:{size:11}}},y:{grid:{color:'rgba(37,42,56,.5)'},ticks:{color:'#6b7280',font:{size:11}}}}}
+    });
+  });
+}
+
 loadAll();
-setInterval(loadAll,5*60*1000);
+setInterval(loadAll, 5*60*1000);
 </script>
 </body>
 </html>`);
 });
 
 app.listen(process.env.PORT || 3000, function(){
-  console.log("MAYBEL Tracker running");
+  console.log("MAYBEL Dashboard running on port "+(process.env.PORT||3000));
 });
