@@ -476,6 +476,7 @@ function gc(id,type,data,opts){
 }
 
 function showPage(p){
+  currentPage=p;
   document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active');});
   document.querySelectorAll('.nbtn').forEach(function(b,i){b.classList.toggle('active',['dashboard','health','analytics','staff','kanban','invoices','usage','livefeed','timesheets','attendance','tasks','payroll'][i]===p);});
   document.getElementById('page-'+p).classList.add('active');
@@ -784,7 +785,8 @@ function loadUsage(){
 }
 function buildAdopt(){gc('ch-adopt','bar',{labels:['Contacts','Conversations','Opportunities','Calendars','Marketing','Automation','Websites','Payments'],datasets:[{data:[85,72,61,45,38,33,28,22],backgroundColor:['rgba(108,99,255,.85)','rgba(0,196,154,.85)','rgba(245,158,11,.85)','rgba(96,165,250,.85)','rgba(239,68,68,.85)','rgba(167,139,250,.85)','rgba(52,211,153,.85)','rgba(251,146,60,.85)'],borderRadius:10,borderSkipped:false,barThickness:28,hoverBorderRadius:10}]});}
 
-function loadAll(){showPage('dashboard');loadSummary();loadHealth();loadStaff();loadUsage();loadNotifs();}
+var currentPage='dashboard';
+function loadAll(){loadSummary();loadHealth();loadStaff();loadUsage();loadNotifs();}
 loadAll();
 setInterval(loadAll,30*1000);
 
