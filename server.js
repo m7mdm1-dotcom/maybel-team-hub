@@ -859,8 +859,12 @@ function loadLiveFeed() {
   }).catch(function(){});
 }
 function lfStat(val, lbl, color) {
-  return '<div class="lf-stat"><div class="lf-stat-val" style="color:'+color+'">'+val+'</div><div class="lf-stat-lbl">'+lbl+'</div></div>';
+  return '<div style="background:var(--surface);border-radius:14px;padding:20px 22px;border:1px solid var(--border);box-shadow:0 2px 8px #0001">'+
+    '<div style="font-size:30px;font-weight:700;color:'+color+';margin-bottom:4px">'+val+'</div>'+
+    '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600">'+lbl+'</div></div>';
 }
+function mkStat(val, lbl, color) { return lfStat(val, lbl, color); }
+
 
 // Auto-refresh live feed every 30s
 setInterval(function(){if(document.getElementById('page-livefeed').classList.contains('active'))loadLiveFeed();},30000);
@@ -883,9 +887,7 @@ function loadTimesheets() {
     var totalHrs = Math.round(totalMins/60*10)/10;
     var avgMins = filtered.length ? Math.round(totalMins/filtered.length) : 0;
     document.getElementById('ts-summary').innerHTML =
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--accent)">'+filtered.length+'</div><div class="lf-stat-lbl">Sessions</div></div>'+
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--green)">'+totalHrs+'h</div><div class="lf-stat-lbl">Total Hours</div></div>'+
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--blue)">'+Math.floor(avgMins/60)+'h '+avgMins%60+'m</div><div class="lf-stat-lbl">Avg Session</div></div>';
+      mkStat(filtered.length,'Sessions','var(--accent)')+mkStat(totalHrs+'h','Total Hours','var(--green)')+mkStat(Math.floor(avgMins/60)+'h '+(avgMins%60)+'m','Avg Session','var(--blue)');
     if(!filtered.length) {
       document.getElementById('ts-body').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--muted)">No timesheet data yet. Use Clock In/Out in Staff tab.</td></tr>';
       return;
@@ -916,10 +918,7 @@ function loadAttendance() {
     var absent = data.filter(function(d){return d.todayStatus==='absent';}).length;
     var onShift = data.filter(function(d){return d.todayStatus==='clocked-in';}).length;
     document.getElementById('att-stats').innerHTML =
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--green)">'+present+'</div><div class="lf-stat-lbl">Present Today</div></div>'+
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--red)">'+absent+'</div><div class="lf-stat-lbl">Absent</div></div>'+
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--accent)">'+onShift+'</div><div class="lf-stat-lbl">On Shift Now</div></div>'+
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--muted)">'+data.length+'</div><div class="lf-stat-lbl">Total Staff</div></div>';
+      mkStat(present,'Present Today','var(--green)')+mkStat(absent,'Absent','var(--red)')+mkStat(onShift,'On Shift Now','var(--accent)')+mkStat(data.length,'Total Staff','var(--muted)');
     document.getElementById('att-body').innerHTML = data.map(function(d){
       var stMap = {'clocked-in':'background:#00c49a22;color:#00c49a','completed':'background:#3b82f622;color:#3b82f6','absent':'background:#ef444422;color:#ef4444'};
       var stTxt = {'clocked-in':'On Shift','completed':'Done','absent':'Absent'};
@@ -1078,9 +1077,7 @@ function loadPayroll() {
     var totalEarned = data.reduce(function(a,d){return a+d.earned;},0);
     var totalHours = data.reduce(function(a,d){return a+d.hoursThisMonth;},0);
     document.getElementById('payroll-summary').innerHTML =
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--green)">$'+totalEarned.toFixed(2)+'</div><div class="lf-stat-lbl">Total Payroll</div></div>'+
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--accent)">'+totalHours+'h</div><div class="lf-stat-lbl">Total Hours</div></div>'+
-      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--blue)">'+data.length+'</div><div class="lf-stat-lbl">Employees</div></div>';
+      mkStat('$'+totalEarned.toFixed(2),'Total Payroll This Month','var(--green)')+mkStat(totalHours+'h','Total Hours','var(--accent)')+mkStat(data.length,'Employees','var(--blue)');
     document.getElementById('payroll-body').innerHTML = data.map(function(d){
       return '<tr>'+
         '<td><div class="emp-cell"><div class="emp-mini-av" style="background:var(--accent)">'+d.userName.slice(0,2).toUpperCase()+'</div>'+
@@ -1096,6 +1093,16 @@ function loadPayroll() {
 function savePayrollRate(uid, rate) {
   fetch('/api/payroll/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:uid,hourlyRate:rate,currency:'USD'})}).then(function(){loadPayroll();});
 }
+
+
+// ── Generic modal helpers ──────────────────────
+function openModal(title, bodyHtml) {
+  document.getElementById('mo-title').textContent = title;
+  document.getElementById('mo-email').textContent = '';
+  document.getElementById('mo-body').innerHTML = bodyHtml;
+  document.getElementById('movl').classList.add('open');
+}
+function closeModal() { closeMoDirect(); }
 
 setInterval(loadNotifs,30*1000);
 
@@ -1137,9 +1144,9 @@ app.delete("/api/tasks/:id", function(req, res) {
 
 // ── TIMESHEETS ──────────────────────────────────────────
 app.get("/api/timesheets", function(req, res) {
-  var cache = global.usersCache || [];
+  var users = cache.users || [];
   var result = [];
-  cache.forEach(function(u) {
+  users.forEach(function(u) {
     var uid = u.id;
     var logs = timesheets[uid] || [];
     var shifts = shiftLog[uid] || [];
@@ -1158,9 +1165,9 @@ app.get("/api/timesheets", function(req, res) {
 
 // ── ATTENDANCE ──────────────────────────────────────────
 app.get("/api/attendance", function(req, res) {
-  var cache = global.usersCache || [];
+  var users = cache.users || [];
   var today = new Date().toISOString().slice(0,10);
-  var result = cache.map(function(u) {
+  var result = users.map(function(u) {
     var uid = u.id;
     var shifts = shiftLog[uid] || [];
     var todayShift = shifts.find(function(s){return s.start && s.start.slice(0,10)===today;});
@@ -1187,10 +1194,10 @@ app.get("/api/attendance", function(req, res) {
 
 // ── PAYROLL ──────────────────────────────────────────────
 app.get("/api/payroll", function(req, res) {
-  var cache = global.usersCache || [];
+  var users = cache.users || [];
   var now = new Date();
   var monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  var result = cache.map(function(u) {
+  var result = users.map(function(u) {
     var uid = u.id;
     var config = payrollConfig[uid] || {hourlyRate: 0, currency: 'USD'};
     var shifts = shiftLog[uid] || [];
@@ -1211,19 +1218,19 @@ app.post("/api/payroll/config", function(req, res) {
 
 // ── PRODUCTIVITY ──────────────────────────────────────────
 app.get("/api/productivity", function(req, res) {
-  var cache = global.usersCache || [];
-  var contactsCache = global.contactsCache || [];
-  var oppsCache = global.oppsCache || [];
+  var users = cache.users || [];
+  var contactsList = cache.contacts || [];
+  var oppsList = cache.opportunities || [];
   var today = new Date().toISOString().slice(0,10);
-  var result = cache.map(function(u) {
+  var result = users.map(function(u) {
     var uid = u.id;
     var shifts = shiftLog[uid] || [];
     var todayShift = shifts.find(function(s){return s.start && s.start.slice(0,10)===today;});
     var isOnShift = todayShift && !todayShift.end;
     var hoursToday = todayShift && todayShift.end ? Math.round((new Date(todayShift.end)-new Date(todayShift.start))/60000/60*10)/10 : (isOnShift ? Math.round((Date.now()-new Date(todayShift.start))/60000/60*10)/10 : 0);
     // Score based on contacts + opps assigned
-    var myContacts = contactsCache.filter(function(c){return c.assignedTo===uid;}).length;
-    var myOpps = oppsCache.filter(function(o){return o.assignedTo===uid;}).length;
+    var myContacts = contactsList.filter(function(c){return c.assignedTo===uid;}).length;
+    var myOpps = oppsList.filter(function(o){return o.assignedTo===uid;}).length;
     var score = Math.min(100, Math.round((myContacts*2 + myOpps*5)));
     var prodPct = score > 0 ? Math.min(100, score) : (isOnShift ? 65 : 0);
     return {userId:uid, userName:u.name, isOnShift:isOnShift, hoursToday:hoursToday, productivityPct:prodPct, contactsAssigned:myContacts, oppsAssigned:myOpps, status: isOnShift ? 'active' : (todayShift ? 'done' : 'offline')};
@@ -1562,9 +1569,14 @@ tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
 
 <!-- ══ LIVE FEED PAGE ══════════════════════════════════════ -->
 <div id="page-livefeed" class="page">
-  <div class="lf-header">
-    <h2 class="sec-title">🔴 Live Feed</h2>
-    <div class="lf-legend"><span class="lf-dot active"></span> Active <span class="lf-dot idle"></span> Idle <span class="lf-dot offline"></span> Offline</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:10px">
+    <h2 style="font-size:20px;font-weight:700;margin:0">🔴 Live Feed</h2>
+    <div style="display:flex;align-items:center;gap:16px;font-size:13px;color:var(--muted)">
+      <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#00c49a;box-shadow:0 0 6px #00c49a;margin-right:5px"></span>Active</span>
+      <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:5px"></span>Idle</span>
+      <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#94a3b8;margin-right:5px"></span>Offline</span>
+      <button class="lf-period active" style="margin-left:8px" onclick="loadLiveFeed()">↻ Refresh</button>
+    </div>
   </div>
   <div class="lf-stats" id="lf-stats"></div>
   <div class="lf-grid" id="lf-grid"></div>
