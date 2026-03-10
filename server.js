@@ -784,7 +784,7 @@ function loadUsage(){
 }
 function buildAdopt(){gc('ch-adopt','bar',{labels:['Contacts','Conversations','Opportunities','Calendars','Marketing','Automation','Websites','Payments'],datasets:[{data:[85,72,61,45,38,33,28,22],backgroundColor:['rgba(108,99,255,.85)','rgba(0,196,154,.85)','rgba(245,158,11,.85)','rgba(96,165,250,.85)','rgba(239,68,68,.85)','rgba(167,139,250,.85)','rgba(52,211,153,.85)','rgba(251,146,60,.85)'],borderRadius:10,borderSkipped:false,barThickness:28,hoverBorderRadius:10}]});}
 
-function loadAll(){loadSummary();loadHealth();loadStaff();loadUsage();loadNotifs();}
+function loadAll(){showPage('dashboard');loadSummary();loadHealth();loadStaff();loadUsage();loadNotifs();}
 loadAll();
 setInterval(loadAll,30*1000);
 
@@ -1435,7 +1435,7 @@ tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
 </div>
 
 <!-- DASHBOARD -->
-<div class="page active" id="page-dashboard">
+<div class="page active" id="page-dashboard" class="page active">
   <div class="sg">
     <div class="sc ca"><div class="sl">Total Users</div><div class="sn" id="s-users">—</div></div>
     <div class="sc cb"><div class="sl">Sub-Accounts</div><div class="sn" id="s-subs">—</div></div>
@@ -1565,9 +1565,6 @@ tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
   </div>
 </div>
 
-<script src="/app.js"></script>
-
-
 <!-- ══ LIVE FEED PAGE ══════════════════════════════════════ -->
 <div id="page-livefeed" class="page">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:10px">
@@ -1674,6 +1671,7 @@ tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
   </div>
 </div>
 
+<script src="/app.js"></script>
 </body>
 </html>`);
 });
