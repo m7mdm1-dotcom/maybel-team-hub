@@ -946,7 +946,7 @@ function loadTasks() {
     fetch('/api/projects').then(function(r){return r.json();}),
     fetch('/api/staff').then(function(r){return r.json();})
   ]).then(function(res){
-    allTasks = res[0]; allProjects = res[1]; var staff = res[2];
+    allTasks = res[0]; allProjects = res[1]; var staff = res[2]; allStaffCache = staff;
     var sel = document.getElementById('task-project-filter');
     sel.innerHTML = '<option value="">All Projects</option>' + allProjects.map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join('');
     renderTasks(staff);
@@ -955,49 +955,55 @@ function loadTasks() {
 }
 function renderTasks(staff) {
   var filtered = allTasks.filter(function(t){
-    if(taskFilter==='todo' && t.status!=='todo') return false;
-    if(taskFilter==='done' && t.status!=='done') return false;
-    if(projectFilter && t.projectId!=parseInt(projectFilter)) return false;
+    if(taskFilter==='todo'&&t.status!=='todo') return false;
+    if(taskFilter==='done'&&t.status!=='done') return false;
+    if(projectFilter&&t.projectId!=parseInt(projectFilter)) return false;
     return true;
   });
-  if(!filtered.length){
-    document.getElementById('tasks-body').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">No tasks yet. Create one!</td></tr>';
-    return;
-  }
-  var colors = ['#6c63ff', '#00c49a', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
-  document.getElementById('tasks-body').innerHTML = filtered.map(function(t){
-    var proj = allProjects.find(function(p){return p.id===t.projectId;})||{name:'—',color:'#94a3b8'};
-    var assignee = (staff||[]).find(function(s){return s.id===t.assigneeId;})||{name:'—'};
-    var priCls = {'high':'pri-high','medium':'pri-medium','low':'pri-low'}[t.priority]||'pri-medium';
-    var isDone = t.status==='done';
-    var due = t.dueDate ? new Date(t.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+  if(!filtered.length){document.getElementById('tasks-body').innerHTML='<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">No tasks yet. Create one!</td></tr>';return;}
+  document.getElementById('tasks-body').innerHTML=filtered.map(function(t){
+    var proj=allProjects.find(function(p){return p.id===t.projectId;})||{name:'—',color:'#94a3b8'};
+    var asgn=(staff||allStaffCache||[]).find(function(s){return s.id===t.assigneeId;})||null;
+    var asgnName=asgn?(asgn.name||asgn.userName||asgn.email):'Unassigned';
+    var priCls={'high':'pri-high','medium':'pri-medium','low':'pri-low'}[t.priority]||'pri-medium';
+    var isDone=t.status==='done';
+    var due=t.dueDate?new Date(t.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
     return '<tr>'+
-      '<td><div class="task-check'+(isDone?' checked':'')+'" data-tid="'+t.id+'" onclick="toggleTask(this.dataset.tid,'+(isDone?'false':'true')+',this)">'+(isDone?'<svg width="12" height="12" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="#fff" stroke-width="2"/></svg>':'')+'</div></td>'+
+      '<td><div class="task-check'+(isDone?' checked':'')+'" data-tid="'+t.id+'" data-done="'+isDone+'" onclick="toggleTaskEl(this)">'+
+      (isDone?'<svg width="11" height="11" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="#fff" stroke-width="2.5"/></svg>':'')+
+      '</div></td>'+
       '<td style="'+(isDone?'text-decoration:line-through;opacity:.5':'')+'"><strong>'+esc(t.title)+'</strong></td>'+
-      '<td><span style="background:'+proj.color+'22;color:'+proj.color+';padding:3px 10px;border-radius:6px;font-size:12px"><span class="proj-dot" style="background:'+proj.color+'"></span>'+esc(proj.name)+'</span></td>'+
-      '<td>'+esc(assignee.name||assignee.userName||'—')+'</td>'+
+      '<td><span style="display:inline-flex;align-items:center;gap:4px;background:'+proj.color+'22;color:'+proj.color+';padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600">'+
+      '<span style="width:8px;height:8px;border-radius:50%;background:'+proj.color+';flex-shrink:0"></span>'+esc(proj.name)+'</span></td>'+
+      '<td style="font-size:13px">'+esc(asgnName)+'</td>'+
       '<td><span class="priority-badge '+priCls+'">'+t.priority+'</span></td>'+
-      '<td>'+due+'</td>'+
+      '<td style="font-size:12px;color:var(--muted)">'+due+'</td>'+
       '<td style="font-size:12px;color:var(--muted)">'+new Date(t.createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})+'</td>'+
-      '<td><button style="background:none;border:none;cursor:pointer;color:var(--red);font-size:16px" data-tid="'+t.id+'" onclick="deleteTask(this.dataset.tid)">×</button></td>'+
+      '<td><button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px;line-height:1" data-tid="'+t.id+'" onclick="deleteTask(this.dataset.tid)">×</button></td>'+
       '</tr>';
   }).join('');
 }
+var allStaffCache=[];
+function toggleTaskEl(el){var tid=el.dataset.tid;var isDone=el.dataset.done==='true';fetch('/api/tasks/'+tid+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:isDone?'todo':'done'})}).then(function(){loadTasks();});}
+
 function renderProjects() {
-  if(!allProjects.length){
-    document.getElementById('projects-grid').innerHTML = '<div style="color:var(--muted);font-size:13px">No projects yet.</div>';
-    return;
-  }
-  document.getElementById('projects-grid').innerHTML = allProjects.map(function(p){
-    var count = allTasks.filter(function(t){return t.projectId===p.id;}).length;
-    var done = allTasks.filter(function(t){return t.projectId===p.id&&t.status==='done';}).length;
-    return '<div class="proj-card"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'+
-      '<span class="proj-dot" style="background:'+p.color+'"></span>'+
-      '<strong>'+esc(p.name)+'</strong>'+
-      '<button style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px" data-pid="'+p.id+'" onclick="deleteProj(this.dataset.pid)">×</button></div>'+
-      '<div style="font-size:13px;color:var(--muted)">'+done+'/'+count+' tasks done</div>'+
-      '<div style="margin-top:8px;height:4px;background:var(--surface2);border-radius:99px;overflow:hidden">'+
-      '<div style="height:100%;width:'+(count?Math.round(done/count*100):0)+'%;background:'+p.color+';border-radius:99px"></div></div>'+
+  if(!allProjects.length){document.getElementById('projects-grid').innerHTML='<div style="color:var(--muted);font-size:13px;padding:20px 0">No projects yet. Create one!</div>';return;}
+  document.getElementById('projects-grid').innerHTML=allProjects.map(function(p){
+    var count=allTasks.filter(function(t){return t.projectId===p.id;}).length;
+    var done=allTasks.filter(function(t){return t.projectId===p.id&&t.status==='done';}).length;
+    var pct=count?Math.round(done/count*100):0;
+    return '<div style="background:var(--surface);border-radius:16px;padding:20px;border:1px solid var(--border);transition:.2s;cursor:default" style="background:var(--surface);border-radius:16px;padding:20px;border:1px solid var(--border)">'+
+      '<div style="width:40px;height:40px;border-radius:12px;background:'+p.color+'22;display:flex;align-items:center;justify-content:center">'+
+      '<div style="width:16px;height:16px;border-radius:50%;background:'+p.color+'"></div></div>'+
+      '<div style="flex:1"><div style="font-weight:700;font-size:14px">'+esc(p.name)+'</div>'+
+      '<div style="font-size:12px;color:var(--muted)">'+count+' task'+(count!==1?'s':'')+'</div></div>'+
+      '<button style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px;line-height:1;padding:4px" data-pid="'+p.id+'" onclick="deleteProj(this.dataset.pid)">×</button></div>'+
+      '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">'+
+      '<span style="color:var(--muted)">Progress</span><span style="font-weight:600;color:'+p.color+'">'+pct+'%</span></div>'+
+      '<div style="height:6px;background:var(--surface2);border-radius:99px;overflow:hidden">'+
+      '<div style="height:100%;width:'+pct+'%;background:'+p.color+';border-radius:99px;transition:width .4s"></div></div>'+
+      '<div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px;color:var(--muted)">'+
+      '<span>'+done+' done</span><span>'+(count-done)+' remaining</span></div>'+
       '</div>';
   }).join('');
 }
@@ -1390,7 +1396,6 @@ tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
 .share-url{flex:1;font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .copy-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;color:var(--text);white-space:nowrap;transition:.15s}
 .copy-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
-</style>
 </head>
 <body>
 
