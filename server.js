@@ -1392,7 +1392,52 @@ tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
 .share-url{flex:1;font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .copy-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;color:var(--text);white-space:nowrap;transition:.15s}
 .copy-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
-</head>
+
+.lf-stats,.ts-summary,.att-stats,.payroll-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px}
+.lf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-bottom:20px}
+.lf-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--sh)}
+.lf-card.active-card{border-color:rgba(0,196,154,.4);box-shadow:0 0 0 2px rgba(0,196,154,.1)}
+.lf-card-top{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.lf-avatar{width:38px;height:38px;border-radius:10px;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+.lf-name{font-weight:600;font-size:13px}.lf-role{font-size:11px;color:var(--muted)}
+.lf-status-badge{padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;margin-left:auto;flex-shrink:0}
+.active-s{background:rgba(0,196,154,.15);color:#00c49a}
+.idle-s{background:rgba(245,158,11,.15);color:#f59e0b}
+.offline-s{background:rgba(148,163,184,.15);color:#94a3b8}
+.lf-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.lf-metric{background:var(--surface2);border-radius:8px;padding:8px;text-align:center}
+.lf-metric-val{font-size:16px;font-weight:700;color:var(--text)}.lf-metric-lbl{font-size:9px;color:var(--muted);margin-top:1px}
+.lf-prod-bar{margin-top:4px}.lf-prod-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px}
+.lf-prod-track{height:6px;background:var(--border);border-radius:999px;overflow:hidden}
+.lf-prod-fill{height:6px;border-radius:999px;background:linear-gradient(90deg,var(--accent),#a78bfa);transition:width .4s}
+.lf-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.lf-table{width:100%;border-collapse:collapse}
+.lf-filter{display:flex;gap:4px}
+.lf-period{padding:5px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12px;font-weight:500;font-family:'DM Sans',sans-serif;color:var(--muted);transition:.15s}
+.lf-period.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.sec-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:10px}
+.prod-chip{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700}
+.prod-chip.high{background:rgba(0,196,154,.12);color:var(--green)}
+.prod-chip.mid{background:rgba(245,158,11,.12);color:var(--yellow)}
+.prod-chip.low{background:rgba(239,68,68,.12);color:var(--red)}
+.task-filter-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.task-filter-btn{padding:6px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12px;font-weight:500;font-family:'DM Sans',sans-serif;color:var(--muted);transition:.15s}
+.task-filter-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.task-check{width:18px;height:18px;border-radius:5px;border:2px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s}
+.task-check.checked{background:var(--green);border-color:var(--green)}
+.task-check:hover{border-color:var(--accent)}
+.priority-badge{padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700}
+.pri-high{background:rgba(239,68,68,.12);color:var(--red)}
+.pri-medium{background:rgba(245,158,11,.12);color:var(--yellow)}
+.pri-low{background:rgba(0,196,154,.12);color:var(--green)}
+.projects-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.emp-cell{display:flex;align-items:center;gap:8px}
+.emp-mini-av{width:28px;height:28px;border-radius:7px;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10px;flex-shrink:0}
+.emp-mini-name{font-weight:600;font-size:12px}.emp-mini-role{font-size:10px;color:var(--muted)}
+.payroll-rate-input{width:70px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface2);color:var(--text);font-family:'DM Mono',monospace}
+.lf-activity-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+
+</style></head>
 <body>
 
 <div class="npnl" id="npnl">
@@ -1435,7 +1480,7 @@ tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
 </div>
 
 <!-- DASHBOARD -->
-<div class="page active" id="page-dashboard" class="page active">
+<div class="page active" id="page-dashboard">
   <div class="sg">
     <div class="sc ca"><div class="sl">Total Users</div><div class="sn" id="s-users">—</div></div>
     <div class="sc cb"><div class="sl">Sub-Accounts</div><div class="sn" id="s-subs">—</div></div>
