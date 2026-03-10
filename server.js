@@ -25,6 +25,18 @@ var notifications = [];
 var kpiTargets = {};
 // Shift log: userId -> [{start, end}]
 var shiftLog = {};
+// Tasks store
+var tasks = []; var taskIdCounter = 1;
+// Projects store
+var projects = []; var projectIdCounter = 1;
+// Timesheets store: userId -> [{date, clockIn, clockOut, totalMins, breaks}]
+var timesheets = {};
+// Attendance store: userId -> [{date, status, lateBy}]
+var attendance = {};
+// Payroll config: userId -> {hourlyRate, currency}
+var payrollConfig = {};
+// Productivity per user per day: userId -> [{date, score}]
+var productivityLog = {};
 // Notes per account
 var accountNotes = {};
 
@@ -90,7 +102,7 @@ async function fetchAll() {
 }
 
 fetchAll();
-setInterval(fetchAll, 5*60*1000);
+setInterval(fetchAll, 30*1000);
 
 // ── API ──────────────────────────────────────────
 app.get("/api/summary", function(req,res) {
@@ -465,12 +477,17 @@ function gc(id,type,data,opts){
 
 function showPage(p){
   document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active');});
-  document.querySelectorAll('.nbtn').forEach(function(b,i){b.classList.toggle('active',['dashboard','health','analytics','staff','kanban','invoices','usage'][i]===p);});
+  document.querySelectorAll('.nbtn').forEach(function(b,i){b.classList.toggle('active',['dashboard','health','analytics','staff','kanban','invoices','usage','livefeed','timesheets','attendance','tasks','payroll'][i]===p);});
   document.getElementById('page-'+p).classList.add('active');
   if(p==='analytics'&&!anaData.loginActivity) loadAnalytics();
   if(p==='usage') buildAdopt();
   if(p==='kanban') loadKanban();
   if(p==='invoices'){loadInvoices();loadContracts();populateObAccounts();}
+  if(p==='livefeed') loadLiveFeed();
+  if(p==='timesheets') loadTimesheets();
+  if(p==='attendance') loadAttendance();
+  if(p==='tasks') loadTasks();
+  if(p==='payroll') loadPayroll();
 }
 function toggleTheme(){isDark=!isDark;document.documentElement.dataset.theme=isDark?'dark':'';document.getElementById('tbtn').textContent=isDark?'☀️':'🌙';setTimeout(function(){Object.keys(chts).forEach(function(id){chts[id].destroy();delete chts[id];});loadSummary();if(anaData.loginActivity)loadAnalytics();loadUsage();if(sfList.length)buildWL();},250);}
 function toggleNotif(){var p=document.getElementById('npnl');p.classList.toggle('open');if(p.classList.contains('open'))loadNotifs();}
@@ -773,10 +790,445 @@ function buildAdopt(){gc('ch-adopt','bar',{labels:['Contacts','Conversations','O
 
 async function loadAll(){await Promise.all([loadSummary(),loadHealth(),loadStaff(),loadUsage()]);loadNotifs();}
 loadAll();
-setInterval(loadAll,5*60*1000);
+setInterval(loadAll,30*1000);
+
+// ══════════════════════════════════════════
+// LIVE FEED
+// ══════════════════════════════════════════
+var lfPeriod = 'daily';
+function setLFPeriod(p, btn) {
+  lfPeriod = p;
+  document.querySelectorAll('#page-livefeed .lf-period').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  loadLiveFeed();
+}
+function loadLiveFeed() {
+  Promise.all([
+    fetch('/api/productivity').then(function(r){return r.json();}),
+    fetch('/api/staff').then(function(r){return r.json();})
+  ]).then(function(results) {
+    var prod = results[0]; var staff = results[1];
+    var active = prod.filter(function(p){return p.isOnShift;}).length;
+    var idle = prod.filter(function(p){return !p.isOnShift && p.hoursToday > 0;}).length;
+    var offline = prod.filter(function(p){return p.hoursToday === 0 && !p.isOnShift;}).length;
+    var avgProd = prod.length ? Math.round(prod.reduce(function(a,p){return a+p.productivityPct;},0)/prod.length) : 0;
+    document.getElementById('lf-stats').innerHTML =
+      lfStat(active,'Active Now','var(--green)') +
+      lfStat(idle,'Idle','var(--yellow)') +
+      lfStat(offline,'Offline','var(--muted)') +
+      lfStat(avgProd+'%','Avg Productivity','var(--accent)');
+    var colors = ['#6c63ff', '#00c49a', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
+    document.getElementById('lf-grid').innerHTML = prod.map(function(p,i) {
+      var s = staff.find(function(x){return x.id===p.userId;})||{};
+      var clr = colors[i%colors.length];
+      var init = p.userName.split(' ').slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase();
+      var statusCls = p.isOnShift?'active-s':(p.hoursToday>0?'idle-s':'offline-s');
+      var statusTxt = p.isOnShift?'Active':(p.hoursToday>0?'Idle':'Offline');
+      var hrs = p.hoursToday||0;
+      var contacts = s.contacts||0;
+      var opps = s.opportunities||0;
+      return '<div class="lf-card'+(p.isOnShift?' active-card':'')+'">'+
+        '<div class="lf-card-top">'+
+        '<div class="lf-avatar" style="background:'+clr+'">'+init+'</div>'+
+        '<div><div class="lf-name">'+esc(p.userName)+'</div><div class="lf-role">'+esc(s.email||'')+'</div></div>'+
+        '<span class="lf-status-badge '+statusCls+'">'+statusTxt+'</span>'+
+        '</div>'+
+        '<div class="lf-metrics">'+
+        '<div class="lf-metric"><div class="lf-metric-val">'+hrs+'h</div><div class="lf-metric-lbl">Today</div></div>'+
+        '<div class="lf-metric"><div class="lf-metric-val">'+contacts+'</div><div class="lf-metric-lbl">Contacts</div></div>'+
+        '<div class="lf-metric"><div class="lf-metric-val">'+opps+'</div><div class="lf-metric-lbl">Opps</div></div>'+
+        '</div>'+
+        '<div class="lf-prod-bar"><div class="lf-prod-label"><span>Productivity</span><span>'+p.productivityPct+'%</span></div>'+
+        '<div class="lf-prod-track"><div class="lf-prod-fill" style="width:'+p.productivityPct+'%"></div></div></div>'+
+        '</div>';
+    }).join('');
+    var tbody = document.getElementById('lf-activity-body');
+    tbody.innerHTML = prod.map(function(p,i){
+      var clr = colors[i%colors.length];
+      var init = p.userName.split(' ').slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase();
+      var pct = p.productivityPct;
+      var chipCls = pct>=70?'high':(pct>=40?'mid':'low');
+      return '<tr><td><div class="emp-cell"><div class="emp-mini-av" style="background:'+clr+'">'+init+'</div>'+
+        '<div><div class="emp-mini-name">'+esc(p.userName)+'</div></div></div></td>'+
+        '<td><span style="background:var(--surface2);padding:3px 10px;border-radius:6px;font-size:12px">Team</span></td>'+
+        '<td><strong>'+p.hoursToday+'h</strong></td>'+
+        '<td><span class="prod-chip '+chipCls+'">'+pct+'%</span></td>'+
+        '<td><span class="lf-status-badge '+(p.isOnShift?'active-s':(p.hoursToday>0?'idle-s':'offline-s'))+'">'+(p.isOnShift?'Active':(p.hoursToday>0?'Idle':'Offline'))+'</span></td>'+
+        '</tr>';
+    }).join('');
+  }).catch(function(){});
+}
+function lfStat(val, lbl, color) {
+  return '<div class="lf-stat"><div class="lf-stat-val" style="color:'+color+'">'+val+'</div><div class="lf-stat-lbl">'+lbl+'</div></div>';
+}
+
+// Auto-refresh live feed every 30s
+setInterval(function(){if(document.getElementById('page-livefeed').classList.contains('active'))loadLiveFeed();},30000);
+
+// ══════════════════════════════════════════
+// TIMESHEETS
+// ══════════════════════════════════════════
+var tsPeriod = 'daily';
+function setTSPeriod(p, btn) {
+  tsPeriod = p;
+  document.querySelectorAll('#page-timesheets .lf-period').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  loadTimesheets();
+}
+function loadTimesheets() {
+  fetch('/api/timesheets').then(function(r){return r.json();}).then(function(data) {
+    var today = new Date().toISOString().slice(0,10);
+    var filtered = tsPeriod==='daily' ? data.filter(function(d){return d.date===today;}) : data;
+    var totalMins = filtered.reduce(function(a,d){return a+d.totalMins;},0);
+    var totalHrs = Math.round(totalMins/60*10)/10;
+    var avgMins = filtered.length ? Math.round(totalMins/filtered.length) : 0;
+    document.getElementById('ts-summary').innerHTML =
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--accent)">'+filtered.length+'</div><div class="lf-stat-lbl">Sessions</div></div>'+
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--green)">'+totalHrs+'h</div><div class="lf-stat-lbl">Total Hours</div></div>'+
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--blue)">'+Math.floor(avgMins/60)+'h '+avgMins%60+'m</div><div class="lf-stat-lbl">Avg Session</div></div>';
+    if(!filtered.length) {
+      document.getElementById('ts-body').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--muted)">No timesheet data yet. Use Clock In/Out in Staff tab.</td></tr>';
+      return;
+    }
+    document.getElementById('ts-body').innerHTML = filtered.map(function(d){
+      var statusBg = d.clockOut ? 'background:#00c49a22;color:#00c49a' : 'background:#f59e0b22;color:#f59e0b';
+      var statusTxt = d.clockOut ? 'Completed' : 'Active';
+      var ci = d.clockIn ? new Date(d.clockIn).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
+      var co = d.clockOut ? new Date(d.clockOut).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
+      return '<tr>'+
+        '<td><div class="emp-cell"><div class="emp-mini-av" style="background:var(--accent)">'+d.userName.slice(0,2).toUpperCase()+'</div>'+
+        '<div class="emp-mini-name">'+esc(d.userName)+'</div></div></td>'+
+        '<td>'+d.date+'</td><td><strong>'+ci+'</strong></td><td>'+co+'</td>'+
+        '<td><strong>'+d.totalFormatted+'</strong></td>'+
+        '<td><span style="padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;'+statusBg+'">'+statusTxt+'</span></td>'+
+        '</tr>';
+    }).join('');
+  }).catch(function(){});
+}
+
+// ══════════════════════════════════════════
+// ATTENDANCE
+// ══════════════════════════════════════════
+function loadAttendance() {
+  document.getElementById('att-date').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  fetch('/api/attendance').then(function(r){return r.json();}).then(function(data){
+    var present = data.filter(function(d){return d.todayStatus!=='absent';}).length;
+    var absent = data.filter(function(d){return d.todayStatus==='absent';}).length;
+    var onShift = data.filter(function(d){return d.todayStatus==='clocked-in';}).length;
+    document.getElementById('att-stats').innerHTML =
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--green)">'+present+'</div><div class="lf-stat-lbl">Present Today</div></div>'+
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--red)">'+absent+'</div><div class="lf-stat-lbl">Absent</div></div>'+
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--accent)">'+onShift+'</div><div class="lf-stat-lbl">On Shift Now</div></div>'+
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--muted)">'+data.length+'</div><div class="lf-stat-lbl">Total Staff</div></div>';
+    document.getElementById('att-body').innerHTML = data.map(function(d){
+      var stMap = {'clocked-in':'background:#00c49a22;color:#00c49a','completed':'background:#3b82f622;color:#3b82f6','absent':'background:#ef444422;color:#ef4444'};
+      var stTxt = {'clocked-in':'On Shift','completed':'Done','absent':'Absent'};
+      var st = d.todayStatus||'absent';
+      var ci = d.clockIn ? new Date(d.clockIn).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
+      var co = d.clockOut ? new Date(d.clockOut).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
+      return '<tr>'+
+        '<td><div class="emp-cell"><div class="emp-mini-av" style="background:var(--accent)">'+d.userName.slice(0,2).toUpperCase()+'</div>'+
+        '<div><div class="emp-mini-name">'+esc(d.userName)+'</div><div class="emp-mini-role">'+esc(d.email||'')+'</div></div></div></td>'+
+        '<td><span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;'+stMap[st]+'">'+stTxt[st]+'</span></td>'+
+        '<td>'+ci+'</td><td>'+co+'</td>'+
+        '<td><strong>'+d.weekHours+'h</strong></td>'+
+        '<td>'+d.totalShifts+' shifts</td></tr>';
+    }).join('');
+  }).catch(function(){});
+}
+
+// ══════════════════════════════════════════
+// TASKS & PROJECTS
+// ══════════════════════════════════════════
+var allTasks = []; var allProjects = []; var taskFilter = 'all'; var projectFilter = '';
+function loadTasks() {
+  Promise.all([
+    fetch('/api/tasks').then(function(r){return r.json();}),
+    fetch('/api/projects').then(function(r){return r.json();}),
+    fetch('/api/staff').then(function(r){return r.json();})
+  ]).then(function(res){
+    allTasks = res[0]; allProjects = res[1]; var staff = res[2];
+    var sel = document.getElementById('task-project-filter');
+    sel.innerHTML = '<option value="">All Projects</option>' + allProjects.map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join('');
+    renderTasks(staff);
+    renderProjects();
+  }).catch(function(){});
+}
+function renderTasks(staff) {
+  var filtered = allTasks.filter(function(t){
+    if(taskFilter==='todo' && t.status!=='todo') return false;
+    if(taskFilter==='done' && t.status!=='done') return false;
+    if(projectFilter && t.projectId!=parseInt(projectFilter)) return false;
+    return true;
+  });
+  if(!filtered.length){
+    document.getElementById('tasks-body').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">No tasks yet. Create one!</td></tr>';
+    return;
+  }
+  var colors = ['#6c63ff', '#00c49a', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
+  document.getElementById('tasks-body').innerHTML = filtered.map(function(t){
+    var proj = allProjects.find(function(p){return p.id===t.projectId;})||{name:'—',color:'#94a3b8'};
+    var assignee = (staff||[]).find(function(s){return s.id===t.assigneeId;})||{name:'—'};
+    var priCls = {'high':'pri-high','medium':'pri-medium','low':'pri-low'}[t.priority]||'pri-medium';
+    var isDone = t.status==='done';
+    var due = t.dueDate ? new Date(t.dueDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+    return '<tr>'+
+      '<td><div class="task-check'+(isDone?' checked':'')+'" data-tid="'+t.id+'" onclick="toggleTask(this.dataset.tid,'+(isDone?'false':'true')+',this)">'+(isDone?'<svg width="12" height="12" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="#fff" stroke-width="2"/></svg>':'')+'</div></td>'+
+      '<td style="'+(isDone?'text-decoration:line-through;opacity:.5':'')+'"><strong>'+esc(t.title)+'</strong></td>'+
+      '<td><span style="background:'+proj.color+'22;color:'+proj.color+';padding:3px 10px;border-radius:6px;font-size:12px"><span class="proj-dot" style="background:'+proj.color+'"></span>'+esc(proj.name)+'</span></td>'+
+      '<td>'+esc(assignee.name||assignee.userName||'—')+'</td>'+
+      '<td><span class="priority-badge '+priCls+'">'+t.priority+'</span></td>'+
+      '<td>'+due+'</td>'+
+      '<td style="font-size:12px;color:var(--muted)">'+new Date(t.createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})+'</td>'+
+      '<td><button style="background:none;border:none;cursor:pointer;color:var(--red);font-size:16px" data-tid="'+t.id+'" onclick="deleteTask(this.dataset.tid)">×</button></td>'+
+      '</tr>';
+  }).join('');
+}
+function renderProjects() {
+  if(!allProjects.length){
+    document.getElementById('projects-grid').innerHTML = '<div style="color:var(--muted);font-size:13px">No projects yet.</div>';
+    return;
+  }
+  document.getElementById('projects-grid').innerHTML = allProjects.map(function(p){
+    var count = allTasks.filter(function(t){return t.projectId===p.id;}).length;
+    var done = allTasks.filter(function(t){return t.projectId===p.id&&t.status==='done';}).length;
+    return '<div class="proj-card"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'+
+      '<span class="proj-dot" style="background:'+p.color+'"></span>'+
+      '<strong>'+esc(p.name)+'</strong>'+
+      '<button style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px" data-pid="'+p.id+'" onclick="deleteProj(this.dataset.pid)">×</button></div>'+
+      '<div style="font-size:13px;color:var(--muted)">'+done+'/'+count+' tasks done</div>'+
+      '<div style="margin-top:8px;height:4px;background:var(--surface2);border-radius:99px;overflow:hidden">'+
+      '<div style="height:100%;width:'+(count?Math.round(done/count*100):0)+'%;background:'+p.color+';border-radius:99px"></div></div>'+
+      '</div>';
+  }).join('');
+}
+function filterTasks(f, btn) {
+  taskFilter = f;
+  document.querySelectorAll('.task-filter-btn').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  renderTasks(null);
+}
+function filterTasksByProject() {
+  projectFilter = document.getElementById('task-project-filter').value;
+  renderTasks(null);
+}
+function toggleTask(tid, newDone, el) {
+  fetch('/api/tasks/'+tid+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newDone?'done':'todo'})}).then(function(){loadTasks();});
+}
+function deleteTask(tid) {
+  if(!confirm('Delete task?')) return;
+  fetch('/api/tasks/'+tid,{method:'DELETE'}).then(function(){loadTasks();});
+}
+function deleteProj(pid) {
+  if(!confirm('Delete project?')) return;
+  fetch('/api/projects/'+pid,{method:'DELETE'}).then(function(){loadTasks();});
+}
+function openNewTask() {
+  var staffOpts = '';
+  fetch('/api/staff').then(function(r){return r.json();}).then(function(staff){
+    staffOpts = staff.map(function(s){return '<option value="'+s.id+'">'+esc(s.name||s.userName||s.email)+'</option>';}).join('');
+    var projOpts = allProjects.map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join('');
+    openModal('New Task',
+      '<div style="display:flex;flex-direction:column;gap:12px">'+
+      '<input id="nt-title" placeholder="Task name" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)">'+
+      '<select id="nt-project" style="padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)"><option value="">No Project</option>'+projOpts+'</select>'+
+      '<select id="nt-assignee" style="padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)"><option value="">Unassigned</option>'+staffOpts+'</select>'+
+      '<select id="nt-priority" style="padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)"><option value="medium">Medium Priority</option><option value="high">High Priority</option><option value="low">Low Priority</option></select>'+
+      '<input id="nt-due" type="date" style="padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)">'+
+      '<button class="save-btn" onclick="submitNewTask()">Create Task</button></div>'
+    );
+  });
+}
+function submitNewTask() {
+  var title = document.getElementById('nt-title').value.trim();
+  if(!title) return;
+  var body = {title:title, projectId:document.getElementById('nt-project').value||null, assigneeId:document.getElementById('nt-assignee').value||null, priority:document.getElementById('nt-priority').value, dueDate:document.getElementById('nt-due').value||null};
+  fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(){closeModal();loadTasks();});
+}
+function openNewProject() {
+  var colors = ['#6c63ff', '#00c49a', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
+  var colorBtns = colors.map(function(c){return '<button style="width:28px;height:28px;border-radius:50%;background:'+c+';border:2px solid transparent;cursor:pointer" data-col="'+c+'" onclick="selectProjColor(this)"></button>';}).join('');
+  openModal('New Project',
+    '<div style="display:flex;flex-direction:column;gap:12px">'+
+    '<input id="np-name" placeholder="Project name" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)">'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap">'+colorBtns+'</div>'+
+    '<input type="hidden" id="np-color" value="'+colors[0]+'">'+
+    '<button class="save-btn" onclick="submitNewProject()">Create Project</button></div>'
+  );
+}
+function selectProjColor(btn) {
+  document.querySelectorAll('#mo-body button[data-col]').forEach(function(b){b.style.borderColor='transparent';});
+  btn.style.borderColor='var(--text)';
+  document.getElementById('np-color').value = btn.dataset.col;
+}
+function submitNewProject() {
+  var name = document.getElementById('np-name').value.trim();
+  if(!name) return;
+  fetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,color:document.getElementById('np-color').value})}).then(function(){closeModal();loadTasks();});
+}
+
+// ══════════════════════════════════════════
+// PAYROLL
+// ══════════════════════════════════════════
+function loadPayroll() {
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var now = new Date();
+  document.getElementById('payroll-month').textContent = months[now.getMonth()]+' '+now.getFullYear();
+  fetch('/api/payroll').then(function(r){return r.json();}).then(function(data){
+    var totalEarned = data.reduce(function(a,d){return a+d.earned;},0);
+    var totalHours = data.reduce(function(a,d){return a+d.hoursThisMonth;},0);
+    document.getElementById('payroll-summary').innerHTML =
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--green)">$'+totalEarned.toFixed(2)+'</div><div class="lf-stat-lbl">Total Payroll</div></div>'+
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--accent)">'+totalHours+'h</div><div class="lf-stat-lbl">Total Hours</div></div>'+
+      '<div class="lf-stat"><div class="lf-stat-val" style="color:var(--blue)">'+data.length+'</div><div class="lf-stat-lbl">Employees</div></div>';
+    document.getElementById('payroll-body').innerHTML = data.map(function(d){
+      return '<tr>'+
+        '<td><div class="emp-cell"><div class="emp-mini-av" style="background:var(--accent)">'+d.userName.slice(0,2).toUpperCase()+'</div>'+
+        '<div class="emp-mini-name">'+esc(d.userName)+'</div></div></td>'+
+        '<td><input class="payroll-rate-input" type="number" value="'+d.hourlyRate+'" min="0" data-uid="'+d.userId+'" onchange="savePayrollRate(this.dataset.uid,this.value)"> /hr</td>'+
+        '<td><strong>'+d.hoursThisMonth+'h</strong></td>'+
+        '<td><strong style="color:var(--green)">$'+d.earned.toFixed(2)+'</strong></td>'+
+        '<td><span style="font-size:12px;color:var(--muted)">'+d.currency+'</span></td>'+
+        '</tr>';
+    }).join('');
+  }).catch(function(){});
+}
+function savePayrollRate(uid, rate) {
+  fetch('/api/payroll/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:uid,hourlyRate:rate,currency:'USD'})}).then(function(){loadPayroll();});
+}
+
 setInterval(loadNotifs,30*1000);
 
 `);
+});
+
+
+// ── TASKS & PROJECTS ──────────────────────────────────
+app.get("/api/projects", function(req, res) {
+  res.json(projects);
+});
+app.post("/api/projects", function(req, res) {
+  var p = {id: projectIdCounter++, name: req.body.name||'Untitled', color: req.body.color||'#6c63ff', createdAt: new Date().toISOString()};
+  projects.push(p);
+  res.json(p);
+});
+app.delete("/api/projects/:id", function(req, res) {
+  projects = projects.filter(function(p){return p.id!==parseInt(req.params.id);});
+  res.json({ok:true});
+});
+
+app.get("/api/tasks", function(req, res) {
+  res.json(tasks);
+});
+app.post("/api/tasks", function(req, res) {
+  var t = {id: taskIdCounter++, title: req.body.title||'Task', projectId: req.body.projectId||null, assigneeId: req.body.assigneeId||null, status: req.body.status||'todo', priority: req.body.priority||'medium', dueDate: req.body.dueDate||null, timeWorked: 0, createdAt: new Date().toISOString()};
+  tasks.push(t);
+  res.json(t);
+});
+app.post("/api/tasks/:id/status", function(req, res) {
+  var t = tasks.find(function(t){return t.id===parseInt(req.params.id);});
+  if(t) t.status = req.body.status;
+  res.json({ok:true});
+});
+app.delete("/api/tasks/:id", function(req, res) {
+  tasks = tasks.filter(function(t){return t.id!==parseInt(req.params.id);});
+  res.json({ok:true});
+});
+
+// ── TIMESHEETS ──────────────────────────────────────────
+app.get("/api/timesheets", function(req, res) {
+  var cache = global.usersCache || [];
+  var result = [];
+  cache.forEach(function(u) {
+    var uid = u.id;
+    var logs = timesheets[uid] || [];
+    var shifts = shiftLog[uid] || [];
+    // Build from shiftLog
+    shifts.forEach(function(s) {
+      if(s.end) {
+        var date = s.start.slice(0,10);
+        var totalMins = Math.round((new Date(s.end)-new Date(s.start))/60000);
+        result.push({userId:uid, userName:u.name, date:date, clockIn:s.start, clockOut:s.end, totalMins:totalMins, totalFormatted: Math.floor(totalMins/60)+'h '+( totalMins%60)+'m'});
+      }
+    });
+  });
+  result.sort(function(a,b){return b.date.localeCompare(a.date);});
+  res.json(result);
+});
+
+// ── ATTENDANCE ──────────────────────────────────────────
+app.get("/api/attendance", function(req, res) {
+  var cache = global.usersCache || [];
+  var today = new Date().toISOString().slice(0,10);
+  var result = cache.map(function(u) {
+    var uid = u.id;
+    var shifts = shiftLog[uid] || [];
+    var todayShift = shifts.find(function(s){return s.start && s.start.slice(0,10)===today;});
+    var thisWeek = shifts.filter(function(s){
+      var d = new Date(s.start);
+      var now = new Date();
+      var weekStart = new Date(now.setDate(now.getDate()-now.getDay()));
+      return d >= weekStart;
+    });
+    var totalWeekMins = thisWeek.reduce(function(acc,s){return acc+(s.end?Math.round((new Date(s.end)-new Date(s.start))/60000):0);},0);
+    return {
+      userId: uid,
+      userName: u.name,
+      email: u.email,
+      todayStatus: todayShift ? (todayShift.end ? 'completed' : 'clocked-in') : 'absent',
+      clockIn: todayShift ? todayShift.start : null,
+      clockOut: todayShift ? todayShift.end : null,
+      weekHours: Math.round(totalWeekMins/60*10)/10,
+      totalShifts: shifts.filter(function(s){return s.end;}).length
+    };
+  });
+  res.json(result);
+});
+
+// ── PAYROLL ──────────────────────────────────────────────
+app.get("/api/payroll", function(req, res) {
+  var cache = global.usersCache || [];
+  var now = new Date();
+  var monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  var result = cache.map(function(u) {
+    var uid = u.id;
+    var config = payrollConfig[uid] || {hourlyRate: 0, currency: 'USD'};
+    var shifts = shiftLog[uid] || [];
+    var monthShifts = shifts.filter(function(s){return s.start >= monthStart && s.end;});
+    var totalMins = monthShifts.reduce(function(acc,s){return acc+Math.round((new Date(s.end)-new Date(s.start))/60000);},0);
+    var totalHours = Math.round(totalMins/60*10)/10;
+    var earned = Math.round(totalHours * config.hourlyRate * 100)/100;
+    return {userId:uid, userName:u.name, hourlyRate:config.hourlyRate, currency:config.currency, hoursThisMonth:totalHours, earned:earned};
+  });
+  res.json(result);
+});
+app.post("/api/payroll/config", function(req, res) {
+  var uid = req.body.userId;
+  if(!uid) return res.status(400).json({error:'userId required'});
+  payrollConfig[uid] = {hourlyRate: parseFloat(req.body.hourlyRate)||0, currency: req.body.currency||'USD'};
+  res.json({ok:true});
+});
+
+// ── PRODUCTIVITY ──────────────────────────────────────────
+app.get("/api/productivity", function(req, res) {
+  var cache = global.usersCache || [];
+  var contactsCache = global.contactsCache || [];
+  var oppsCache = global.oppsCache || [];
+  var today = new Date().toISOString().slice(0,10);
+  var result = cache.map(function(u) {
+    var uid = u.id;
+    var shifts = shiftLog[uid] || [];
+    var todayShift = shifts.find(function(s){return s.start && s.start.slice(0,10)===today;});
+    var isOnShift = todayShift && !todayShift.end;
+    var hoursToday = todayShift && todayShift.end ? Math.round((new Date(todayShift.end)-new Date(todayShift.start))/60000/60*10)/10 : (isOnShift ? Math.round((Date.now()-new Date(todayShift.start))/60000/60*10)/10 : 0);
+    // Score based on contacts + opps assigned
+    var myContacts = contactsCache.filter(function(c){return c.assignedTo===uid;}).length;
+    var myOpps = oppsCache.filter(function(o){return o.assignedTo===uid;}).length;
+    var score = Math.min(100, Math.round((myContacts*2 + myOpps*5)));
+    var prodPct = score > 0 ? Math.min(100, score) : (isOnShift ? 65 : 0);
+    return {userId:uid, userName:u.name, isOnShift:isOnShift, hoursToday:hoursToday, productivityPct:prodPct, contactsAssigned:myContacts, oppsAssigned:myOpps, status: isOnShift ? 'active' : (todayShift ? 'done' : 'offline')};
+  });
+  res.json(result);
 });
 
 app.get("/", function(req,res) {
@@ -960,6 +1412,11 @@ tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
     <button class="nbtn" onclick="showPage('kanban')">🗂️ Kanban</button>
     <button class="nbtn" onclick="showPage('invoices')">💰 Invoices</button>
     <button class="nbtn" onclick="showPage('usage')">⚡ Usage</button>
+    <button class="nbtn" onclick="showPage('livefeed')">🔴 Live Feed</button>
+    <button class="nbtn" onclick="showPage('timesheets')">⏱️ Timesheets</button>
+    <button class="nbtn" onclick="showPage('attendance')">📅 Attendance</button>
+    <button class="nbtn" onclick="showPage('tasks')">📋 Tasks</button>
+    <button class="nbtn" onclick="showPage('payroll')">💵 Payroll</button>
   </nav>
   <div class="hdr-right">
     <span class="lupd" id="lupd">—</span>
@@ -1101,6 +1558,108 @@ tr:last-child td{border-bottom:none}tr:hover td{background:var(--surface2)}
 </div>
 
 <script src="/app.js"></script>
+
+
+<!-- ══ LIVE FEED PAGE ══════════════════════════════════════ -->
+<div id="page-livefeed" class="page">
+  <div class="lf-header">
+    <h2 class="sec-title">🔴 Live Feed</h2>
+    <div class="lf-legend"><span class="lf-dot active"></span> Active <span class="lf-dot idle"></span> Idle <span class="lf-dot offline"></span> Offline</div>
+  </div>
+  <div class="lf-stats" id="lf-stats"></div>
+  <div class="lf-grid" id="lf-grid"></div>
+  <div class="sec-title" style="margin-top:28px">📊 Activity Analysis</div>
+  <div class="lf-activity-header">
+    <div></div>
+    <div class="lf-filter">
+      <button class="lf-period active" onclick="setLFPeriod('daily',this)">Daily</button>
+      <button class="lf-period" onclick="setLFPeriod('weekly',this)">Weekly</button>
+    </div>
+  </div>
+  <div class="lf-table-wrap">
+    <table class="lf-table">
+      <thead><tr><th>Employee</th><th>Team</th><th>Total Time</th><th>Productive</th><th>Status</th></tr></thead>
+      <tbody id="lf-activity-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══ TIMESHEETS PAGE ════════════════════════════════════ -->
+<div id="page-timesheets" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <h2 class="sec-title">⏱️ Timesheets</h2>
+    <div class="lf-filter">
+      <button class="lf-period active" onclick="setTSPeriod('daily',this)">Daily</button>
+      <button class="lf-period" onclick="setTSPeriod('weekly',this)">Weekly</button>
+    </div>
+  </div>
+  <div class="ts-summary" id="ts-summary"></div>
+  <div class="lf-table-wrap" style="margin-top:20px">
+    <table class="lf-table">
+      <thead><tr><th>Employee</th><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Total Hours</th><th>Status</th></tr></thead>
+      <tbody id="ts-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══ ATTENDANCE PAGE ════════════════════════════════════ -->
+<div id="page-attendance" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <h2 class="sec-title">📅 Attendance</h2>
+    <div style="font-size:13px;color:var(--muted)">Today: <strong id="att-date"></strong></div>
+  </div>
+  <div class="att-stats" id="att-stats"></div>
+  <div class="lf-table-wrap" style="margin-top:20px">
+    <table class="lf-table">
+      <thead><tr><th>Employee</th><th>Today Status</th><th>Clock In</th><th>Clock Out</th><th>Week Hours</th><th>Total Shifts</th></tr></thead>
+      <tbody id="att-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══ TASKS & PROJECTS PAGE ═════════════════════════════ -->
+<div id="page-tasks" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+    <h2 class="sec-title">📋 Tasks & Projects</h2>
+    <div style="display:flex;gap:10px">
+      <button class="save-btn" onclick="openNewTask()">+ New Task</button>
+      <button class="save-btn" style="background:var(--surface2);color:var(--text)" onclick="openNewProject()">+ New Project</button>
+    </div>
+  </div>
+  <div class="task-filter-bar">
+    <button class="task-filter-btn active" onclick="filterTasks('all',this)">All</button>
+    <button class="task-filter-btn" onclick="filterTasks('todo',this)">To Do</button>
+    <button class="task-filter-btn" onclick="filterTasks('done',this)">Done</button>
+    <select id="task-project-filter" onchange="filterTasksByProject()" style="margin-left:auto;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+      <option value="">All Projects</option>
+    </select>
+  </div>
+  <div class="lf-table-wrap" style="margin-top:16px">
+    <table class="lf-table">
+      <thead><tr><th style="width:32px"></th><th>Task</th><th>Project</th><th>Assignee</th><th>Priority</th><th>Due Date</th><th>Created</th><th></th></tr></thead>
+      <tbody id="tasks-body"></tbody>
+    </table>
+  </div>
+  <div style="margin-top:28px">
+    <div class="sec-title" style="margin-bottom:14px">📁 Projects</div>
+    <div class="projects-grid" id="projects-grid"></div>
+  </div>
+</div>
+
+<!-- ══ PAYROLL PAGE ═══════════════════════════════════════ -->
+<div id="page-payroll" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <h2 class="sec-title">💵 Payroll</h2>
+    <div style="font-size:13px;color:var(--muted)">Month: <strong id="payroll-month"></strong></div>
+  </div>
+  <div class="payroll-summary" id="payroll-summary"></div>
+  <div class="lf-table-wrap" style="margin-top:20px">
+    <table class="lf-table">
+      <thead><tr><th>Employee</th><th>Hourly Rate</th><th>Hours This Month</th><th>Earned</th><th>Actions</th></tr></thead>
+      <tbody id="payroll-body"></tbody>
+    </table>
+  </div>
+</div>
 
 </body>
 </html>`);
